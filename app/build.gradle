@@ -1,0 +1,38 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'app.autoturn.vpn'
+    compileSdk 37
+
+    defaultConfig {
+        applicationId 'app.autoturn.vpn'
+        minSdk 29
+        targetSdk 36
+        versionCode 18
+        versionName '1.0.5'
+        testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+    }
+
+    // Use the original local debug key so updates keep the existing encrypted profiles.
+    if (file('../.android/debug.keystore').exists()) {
+        signingConfigs.debug.storeFile = file('../.android/debug.keystore')
+    }
+
+    buildFeatures { buildConfig true }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        jniLibs { useLegacyPackaging true }
+    }
+}
+
+dependencies {
+    implementation project(':amneziawg-tunnel')
+    implementation files('libs/libXray.aar')
+    androidTestCompileOnly files('../.sdk/platforms/android-37.0/optional/android.test.base.jar',
+            '../.sdk/platforms/android-37.0/optional/android.test.runner.jar')
+}

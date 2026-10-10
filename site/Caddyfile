@@ -1,0 +1,9 @@
+tg.hl100.ru {
+    root * /srv/hl100-site
+    encode gzip
+    file_server
+}
+
+hl100.ru {
+    redir https://tg.hl100.ru{uri} 302
+}
