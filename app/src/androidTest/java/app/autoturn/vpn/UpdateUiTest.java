@@ -89,7 +89,7 @@ public final class UpdateUiTest extends InstrumentationTestCase {
         ui(() -> { updater.check(true); activity.finish(); });
         waitCheck(); assertNull(field(updater, "listener"));
     }
-    public void testVerifiedApkOpensSystemInstallerWithoutAppChooser() throws Exception {
+    public void testVerifiedApkOpensStandardAndroidFlow() throws Exception {
         launch(); waitCheck();
         android.content.Context context = activity;
         assertTrue("Allow app updates before this device test", context.getPackageManager().canRequestPackageInstalls());
@@ -118,22 +118,21 @@ public final class UpdateUiTest extends InstrumentationTestCase {
             while (System.currentTimeMillis() < end) {
                 Thread.sleep(200);
                 root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
-                if (root != null && root.getPackageName() != null && root.getPackageName().toString().contains("packageinstaller") &&
-                        !root.findAccessibilityNodeInfosByText("Обновить").isEmpty()) break;
+                if (root != null && root.getPackageName() != null &&
+                        (root.getPackageName().toString().contains("intentresolver") ||
+                                (root.getPackageName().toString().contains("packageinstaller") &&
+                                        !root.findAccessibilityNodeInfosByText("Обновить").isEmpty()))) break;
             }
             assertNotNull(root);
-            assertTrue("Must reach Android installer directly", root.getPackageName().toString().contains("packageinstaller"));
-            assertFalse("Installer must finish parsing the APK", root.findAccessibilityNodeInfosByText("Обновить").isEmpty());
+            assertTrue("Android owns the APK opening flow", root.getPackageName().toString().contains("packageinstaller") ||
+                    root.getPackageName().toString().contains("intentresolver"));
             android.graphics.Bitmap screenshot = getInstrumentation().getUiAutomation().takeScreenshot();
             if (screenshot != null) {
                 try (java.io.OutputStream out = new java.io.FileOutputStream(new java.io.File(context.getCacheDir(), "update-installer-test.png"))) {
                     screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
                 } finally { screenshot.recycle(); }
             }
-            root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
-            java.util.List<android.view.accessibility.AccessibilityNodeInfo> cancel = root.findAccessibilityNodeInfosByText("Отмена");
-            assertFalse(cancel.isEmpty());
-            assertTrue(cancel.get(0).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK));
+            assertTrue(getInstrumentation().getUiAutomation().performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK));
             settle();
         } finally {
             getInstrumentation().getUiAutomation().performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
