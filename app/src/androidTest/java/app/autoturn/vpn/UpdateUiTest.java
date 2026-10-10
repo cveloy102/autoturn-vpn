@@ -89,4 +89,46 @@ public final class UpdateUiTest extends InstrumentationTestCase {
         ui(() -> { updater.check(true); activity.finish(); });
         waitCheck(); assertNull(field(updater, "listener"));
     }
+    public void testVerifiedApkOpensSystemInstallerWithoutAppChooser() throws Exception {
+        launch(); waitCheck();
+        android.content.Context context = activity;
+        assertTrue("Allow app updates before this device test", context.getPackageManager().canRequestPackageInstalls());
+        java.io.File source = new java.io.File("/data/local/tmp/autoturn-update-candidate.apk");
+        android.content.pm.PackageInfo info = context.getPackageManager().getPackageArchiveInfo(source.getAbsolutePath(), 0);
+        assertNotNull(info);
+        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+        try (java.io.InputStream in = java.nio.file.Files.newInputStream(source.toPath())) {
+            byte[] bytes = new byte[65536];
+            for (int count; (count = in.read(bytes)) != -1;) digest.update(bytes, 0, count);
+        }
+        UpdateRelease candidate = new UpdateRelease(info.getLongVersionCode(), info.versionName, "", "", AppUpdater.hex(digest.digest()), source.length());
+        AppUpdater.validate(context, source, candidate);
+        java.io.File verified = UpdateApkProvider.apk(context);
+        verified.getParentFile().mkdirs();
+        java.nio.file.Files.copy(source.toPath(), verified.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        try {
+            ui(() -> {
+                try {
+                    Object updateUi = field(activity, "updateUi");
+                    Method install = UpdateUi.class.getDeclaredMethod("launchInstaller"); install.setAccessible(true); install.invoke(updateUi);
+                } catch (Exception e) { throw new RuntimeException(e); }
+            });
+            android.view.accessibility.AccessibilityNodeInfo root = null;
+            long end = System.currentTimeMillis() + 10000;
+            while (System.currentTimeMillis() < end) {
+                Thread.sleep(200);
+                root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
+                if (root != null && root.getPackageName() != null && root.getPackageName().toString().contains("packageinstaller")) break;
+            }
+            assertNotNull(root);
+            assertTrue("Must reach Android installer directly", root.getPackageName().toString().contains("packageinstaller"));
+            java.util.List<android.view.accessibility.AccessibilityNodeInfo> cancel = root.findAccessibilityNodeInfosByText("Отмена");
+            assertFalse(cancel.isEmpty());
+            assertTrue(cancel.get(0).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK));
+            settle();
+        } finally {
+            getInstrumentation().getUiAutomation().performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
+            verified.delete();
+        }
+    }
 }

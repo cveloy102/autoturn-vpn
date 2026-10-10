@@ -141,4 +141,13 @@ public final class UpdateValidationTest extends InstrumentationTestCase {
         assertNotNull(archive);
         AppUpdater.validate(context, candidate, apkMetadata(candidate, archive.getLongVersionCode(), archive.versionName));
     }
+    public void testSamePackageWithDifferentSigningKeyRejected() throws Exception {
+        File candidate = new File("/data/local/tmp/autoturn-wrong-signature.apk");
+        assertTrue("Host must provide alternative-key fixture", candidate.isFile());
+        Context context = getInstrumentation().getTargetContext();
+        PackageInfo archive = context.getPackageManager().getPackageArchiveInfo(candidate.getAbsolutePath(), PackageManager.GET_SIGNING_CERTIFICATES);
+        assertNotNull(archive); assertEquals(context.getPackageName(), archive.packageName);
+        assertTrue(archive.getLongVersionCode() > context.getPackageManager().getPackageInfo(context.getPackageName(), 0).getLongVersionCode());
+        invalidApk(candidate, apkMetadata(candidate, archive.getLongVersionCode(), archive.versionName));
+    }
 }
