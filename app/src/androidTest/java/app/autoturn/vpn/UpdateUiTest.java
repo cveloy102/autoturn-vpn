@@ -114,14 +114,23 @@ public final class UpdateUiTest extends InstrumentationTestCase {
                 } catch (Exception e) { throw new RuntimeException(e); }
             });
             android.view.accessibility.AccessibilityNodeInfo root = null;
-            long end = System.currentTimeMillis() + 10000;
+            long end = System.currentTimeMillis() + 20000;
             while (System.currentTimeMillis() < end) {
                 Thread.sleep(200);
                 root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
-                if (root != null && root.getPackageName() != null && root.getPackageName().toString().contains("packageinstaller")) break;
+                if (root != null && root.getPackageName() != null && root.getPackageName().toString().contains("packageinstaller") &&
+                        !root.findAccessibilityNodeInfosByText("Обновить").isEmpty()) break;
             }
             assertNotNull(root);
             assertTrue("Must reach Android installer directly", root.getPackageName().toString().contains("packageinstaller"));
+            assertFalse("Installer must finish parsing the APK", root.findAccessibilityNodeInfosByText("Обновить").isEmpty());
+            android.graphics.Bitmap screenshot = getInstrumentation().getUiAutomation().takeScreenshot();
+            if (screenshot != null) {
+                try (java.io.OutputStream out = new java.io.FileOutputStream(new java.io.File(context.getCacheDir(), "update-installer-test.png"))) {
+                    screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+                } finally { screenshot.recycle(); }
+            }
+            root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
             java.util.List<android.view.accessibility.AccessibilityNodeInfo> cancel = root.findAccessibilityNodeInfosByText("Отмена");
             assertFalse(cancel.isEmpty());
             assertTrue(cancel.get(0).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK));
