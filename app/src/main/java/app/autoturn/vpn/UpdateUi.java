@@ -116,11 +116,12 @@ final class UpdateUi implements AppUpdater.Listener {
         progressHidden = false;
         updater.verifyReady(state.release);
     }
+    @SuppressWarnings("deprecation")
     private void launchInstaller() {
         dismiss();
         try {
             Uri uri = UpdateApkProvider.uri(activity);
-            Intent intent = new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+            Intent intent = new Intent(Intent.ACTION_INSTALL_PACKAGE).setDataAndType(uri, "application/vnd.android.package-archive")
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             intent.setClipData(android.content.ClipData.newRawUri("AutoTurn update", uri));
             activity.startActivity(intent);

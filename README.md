@@ -2,9 +2,9 @@
 
 **VPN, который подстраивается под вашу сеть.** AutoTurn включает подключение вне домашнего Wi-Fi и выключает его дома. Ручное управление остаётся доступным в приложении и в шторке Android.
 
-**Android 10+ · версия 1.0.6 · AmneziaWG / VLESS / Hysteria 2**
+**Android 10+ · версия 1.0.7 · AmneziaWG / VLESS / Hysteria 2**
 
-[**Скачать APK**](https://github.com/cveloy102/autoturn-vpn/releases/download/v1.0.6/AutoTurn-1.0.6.apk) · [Релиз 1.0.6](https://github.com/cveloy102/autoturn-vpn/releases/tag/v1.0.6) · [История версий](CHANGELOG.md) · [Сборка](docs/DEVELOPMENT.md)
+[**Скачать APK**](https://github.com/cveloy102/autoturn-vpn/releases/download/v1.0.7/AutoTurn-1.0.7.apk) · [Релиз 1.0.7](https://github.com/cveloy102/autoturn-vpn/releases/tag/v1.0.7) · [История версий](CHANGELOG.md) · [Сборка](docs/DEVELOPMENT.md)
 
 ## Интерфейс
 
@@ -54,7 +54,7 @@ AutoTurn — клиент: для работы нужен собственный
 
 Проверено на POCO F7 с Android 16. Android допускает одно активное VPN-подключение одновременно. Энергосбережение может задерживать таймеры; поддержание активного туннеля также расходует батарею. Контроль соединения зависит от доступности проверочных HTTPS-адресов.
 
-## В версии 1.0.6
+## В версии 1.0.7
 
 - Проверка обновлений при открытии приложения, максимум раз в 24 часа.
 - Кнопка «Проверить обновления» проверяет сразу, независимо от суточного интервала.
