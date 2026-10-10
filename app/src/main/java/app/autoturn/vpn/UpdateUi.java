@@ -17,6 +17,7 @@ final class UpdateUi implements AppUpdater.Listener {
     private boolean installAfterPermission;
     private boolean installAfterValidation;
     private boolean progressHidden;
+    private boolean feedbackRequested;
     private AlertDialog dialog;
     private TextView progressText;
     private ProgressBar progress;
@@ -33,10 +34,11 @@ final class UpdateUi implements AppUpdater.Listener {
         }
         updater.check(false);
     }
-    void pause() { resumed = false; updater.detach(this); }
+    void pause() { resumed = false; feedbackRequested = false; updater.detach(this); }
     void destroy() { pause(); dismiss(); }
     void notesClosed() { changed(updater.state()); }
     void manualCheck() {
+        feedbackRequested = true;
         progressHidden = false;
         AppUpdater.State state = updater.state();
         if (state.phase == AppUpdater.Phase.READY || state.phase == AppUpdater.Phase.DOWNLOADING ||
@@ -56,16 +58,21 @@ final class UpdateUi implements AppUpdater.Listener {
         handled = state;
         switch (state.phase) {
             case AVAILABLE:
-                if (state.manual || updater.shouldOffer(state.release)) offer(state.release, false);
+                boolean requested = feedbackRequested;
+                feedbackRequested = false;
+                if (requested || updater.shouldOffer(state.release)) offer(state.release, false);
                 break;
             case READY:
+                feedbackRequested = false;
                 if (installAfterValidation) { installAfterValidation = false; launchInstaller(); }
                 else offer(state.release, true);
                 break;
             case CURRENT:
             case ERROR:
                 installAfterValidation = false;
-                if (state.manual) showMessage("Обновления", state.message);
+                boolean showResult = feedbackRequested && state.manual;
+                feedbackRequested = false;
+                if (showResult) showMessage("Обновления", state.message);
                 break;
             default: break;
         }
@@ -92,6 +99,7 @@ final class UpdateUi implements AppUpdater.Listener {
         dialog = new AlertDialog.Builder(activity).setTitle("AutoTurn " + release.version)
                 .setView(scroll).setPositiveButton(ready ? "Установить" : "Скачать", (d, w) -> {
                     progressHidden = false;
+                    feedbackRequested = true;
                     if (ready) install(); else updater.download(release);
                 }).setNegativeButton("Позже", null).create();
         showStyled();
@@ -113,6 +121,7 @@ final class UpdateUi implements AppUpdater.Listener {
         AppUpdater.State state = updater.state();
         if (state.release == null) return;
         installAfterValidation = true;
+        feedbackRequested = true;
         progressHidden = false;
         updater.verifyReady(state.release);
     }
@@ -127,6 +136,7 @@ final class UpdateUi implements AppUpdater.Listener {
         } catch (Exception e) { showMessage("Обновления", "Не удалось открыть установщик Android. Нажмите «Проверить обновления» и повторите установку."); }
     }
     private void showProgress(AppUpdater.State state) {
+        feedbackRequested = true;
         if (dialog == null || !dialog.isShowing() || progressText == null) {
             dismiss();
             LinearLayout layout = new LinearLayout(activity);

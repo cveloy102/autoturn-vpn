@@ -71,6 +71,24 @@ public final class UpdateUiTest extends InstrumentationTestCase {
         });
         settle(); assertEquals(previous, activity.getSharedPreferences("app_updates", 0).getLong("last_check", 0));
     }
+    public void testDismissedManualResultDoesNotReappearAfterRelaunch() throws Exception {
+        launch(); waitCheck();
+        Button check = button(activity.getWindow().getDecorView(), "Проверить обновления");
+        assertNotNull(check); ui(() -> check.performClick()); waitCheck();
+        assertEquals(AppUpdater.Phase.CURRENT, AppUpdater.get(activity).state().phase);
+        AlertDialog result = (AlertDialog) field(field(activity, "updateUi"), "dialog");
+        assertNotNull(result); assertTrue(result.isShowing());
+        ui(() -> result.getButton(AlertDialog.BUTTON_POSITIVE).performClick());
+        ui(() -> activity.finish()); settle();
+        launch(); waitCheck();
+        assertNull("A cached manual result must not become a startup popup", field(field(activity, "updateUi"), "dialog"));
+    }
+    public void testCachedCheckErrorDoesNotShowWithoutManualRequest() throws Exception {
+        launch(); waitCheck();
+        UpdateUi screen = (UpdateUi) field(activity, "updateUi");
+        ui(() -> screen.changed(new AppUpdater.State(AppUpdater.Phase.ERROR, null, -1, "Offline", true)));
+        settle(); assertNull(field(screen, "dialog"));
+    }
     public void testManualRequestDuringAutomaticCheckShowsItsResult() throws Exception {
         launch(); waitCheck();
         ui(() -> {
