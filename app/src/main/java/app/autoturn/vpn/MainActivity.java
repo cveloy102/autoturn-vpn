@@ -67,6 +67,7 @@ public final class MainActivity extends Activity {
     private int slideDirection;
     private OnBackInvokedCallback backCallback;
     private AlertDialog releaseNotesDialog;
+    private UpdateUi updateUi;
     private AlertDialog controlDialog;
     private LinearLayout shell;
     private FrameLayout pageHost;
@@ -118,6 +119,7 @@ public final class MainActivity extends Activity {
             return;
         }
         applyTheme();
+        updateUi = new UpdateUi(this);
         render();
     }
 
@@ -139,6 +141,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if (updateUi != null) updateUi.destroy();
+        if (releaseNotesDialog != null) releaseNotesDialog.dismiss();
         if (controlDialog != null) controlDialog.dismiss();
         if (Build.VERSION.SDK_INT >= 33 && backCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
@@ -186,7 +190,15 @@ public final class MainActivity extends Activity {
         if (store.automation || !SecureStore.MANUAL_AUTO.equals(store.manualMode)) refreshAutomation();
         render();
         showReleaseNotesIfNeeded();
+        if (updateUi != null) updateUi.resume();
     }
+
+    @Override protected void onPause() {
+        if (updateUi != null) updateUi.pause();
+        super.onPause();
+    }
+
+    boolean updateNotesVisible() { return releaseNotesDialog != null; }
 
     private void render() {
         if (store == null) return;
@@ -567,6 +579,12 @@ public final class MainActivity extends Activity {
         root.addView(label("После ручного включения или выключения.\nНовая команда начинает отсчёт заново.\nИзменение времени тоже перезапускает отсчёт.\nПри энергосбережении возврат может задержаться.", 12, MUTED, false));
         gap(root, 18);
         TerminalUi.divider(root, palette.divider);
+        gap(root, 18);
+        root.addView(label("// Обновления", 13, TEXT, false));
+        gap(root, 8);
+        root.addView(label("AutoTurn " + BuildConfig.VERSION_NAME + "\nПроверка при открытии — раз в сутки.\nСкачивание из GitHub Releases.", 12, MUTED, false));
+        gap(root, 12);
+        root.addView(action("Проверить обновления →", false, v -> updateUi.manualCheck()));
     }
 
     private void renderTerminalProfiles(LinearLayout root) {
@@ -650,10 +668,10 @@ public final class MainActivity extends Activity {
         gap(content, 13);
         content.addView(label("Что нового", 27, TEXT, true));
         gap(content, 17);
-        TextView changes = label("• Три режима: Авто, Включён вручную и Выключен.\n\n" +
-                "• Возврат в Авто после ручной команды: выкл., 2, 4, 6 или 24 часа. По умолчанию — 2 часа.\n\n" +
-                "• В ручном режиме видно время возврата; вернуть Авто можно сразу.\n\n" +
-                "• Сохранены проверка трафика, резервные профили и защита VPN при заблокированном экране.\n\n" +
+        TextView changes = label("• Проверка новых версий при открытии — раз в сутки.\n\n" +
+                "• Кнопка «Проверить обновления» в настройках.\n\n" +
+                "• Скачивание из GitHub, проверка APK и установка с подтверждением Android.\n\n" +
+                "• Одна версия для всех телефонов.\n\n" +
                 "Профили и настройки сохраняются при обновлении.", 14, MUTED, false);
         changes.setLineSpacing(dp(2), 1f);
         content.addView(changes);
@@ -661,7 +679,10 @@ public final class MainActivity extends Activity {
 
         AlertDialog dialog = new AlertDialog.Builder(this).setView(content).create();
         dialog.setCancelable(false);
-        dialog.setOnDismissListener(ignored -> releaseNotesDialog = null);
+        dialog.setOnDismissListener(ignored -> {
+            releaseNotesDialog = null;
+            if (updateUi != null && !isFinishing() && !isDestroyed()) updateUi.notesClosed();
+        });
         content.addView(action("Понятно", true, v -> {
             getSharedPreferences("release_notes", MODE_PRIVATE).edit()
                     .putInt("shown_version", BuildConfig.VERSION_CODE).apply();
