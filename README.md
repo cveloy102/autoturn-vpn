@@ -67,3 +67,7 @@ AutoTurn — клиент: для работы нужен собственный
 ## Компоненты проекта
 
 Android-клиент находится в `app/`, серверная панель — в `admin-panel/`, сайт — в `site/`. [Панель управления](admin-panel/README.md) и [Telegram-прокси](admin-panel/relay/README.md) имеют отдельную документацию. Происхождение сетевых библиотек: [Xray](app/libs/ORIGIN.md), [AmneziaWG](third_party/amneziawg-tunnel/ORIGIN.md).
+
+## Версия для macOS
+
+[AutoTurn для Mac](https://github.com/cveloy102/autoturn-macos) — AmneziaWG 3.1, автоматическое подключение вне дома и меню в строке состояния. Отдельная универсальная сборка для Intel и Apple Silicon: [скачать и установить](https://cveloy102.github.io/autoturn-macos/).
