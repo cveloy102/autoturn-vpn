@@ -1,0 +1,54 @@
+name: Сообщить об ошибке
+description: Помогите воспроизвести и исправить проблему в AutoTurn для Android
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Не прикладывайте приватные ключи, полные VPN-конфигурации, пароли или токены. Удаляйте персональные данные из логов и скриншотов."
+  - type: input
+    id: version
+    attributes:
+      label: Версия AutoTurn
+      placeholder: "1.0.11"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Устройство и Android
+      placeholder: "POCO F7, Android 16"
+    validations:
+      required: true
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Тип подключения
+      options:
+        - AmneziaWG
+        - VLESS / REALITY
+        - Hysteria 2
+        - Xray JSON
+        - Без подключения / интерфейс
+        - Другое
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как воспроизвести
+      description: "Последовательно опишите действия, включая режим Авто/ручной и тип сети."
+      placeholder: "1. Открыл приложение..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемый и фактический результат
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Дополнительные сведения
+      description: "Обезличенные логи или скриншоты — при необходимости."
