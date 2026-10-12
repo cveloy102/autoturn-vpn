@@ -48,7 +48,16 @@ final class UpdateUi implements AppUpdater.Listener {
         showMessage("Обновления", "Проверяем GitHub…");
         updater.check(true);
     }
+    void openUpdate() {
+        AppUpdater.State state = updater.state();
+        if (state.phase == AppUpdater.Phase.READY || state.phase == AppUpdater.Phase.DOWNLOADING ||
+                state.phase == AppUpdater.Phase.VERIFYING) { manualCheck(); return; }
+        UpdateRelease release = updater.availableRelease();
+        if (release != null) offer(release, false);
+        else manualCheck();
+    }
     @Override public void changed(AppUpdater.State state) {
+        activity.updateHomeUpdate();
         if (!resumed || activity.isFinishing() || activity.isDestroyed() || activity.updateNotesVisible()) return;
         if (state.phase == AppUpdater.Phase.DOWNLOADING || state.phase == AppUpdater.Phase.VERIFYING) {
             if (!progressHidden) showProgress(state);

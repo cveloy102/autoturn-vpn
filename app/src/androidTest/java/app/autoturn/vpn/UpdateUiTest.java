@@ -43,6 +43,69 @@ public final class UpdateUiTest extends InstrumentationTestCase {
         settle();
         assertTrue("GitHub request must finish", AppUpdater.get(activity).state().phase != AppUpdater.Phase.CHECKING);
     }
+    private UpdateRelease futureRelease() {
+        return new UpdateRelease(BuildConfig.VERSION_CODE + 1L, "1.0.11", "Тест обновления",
+                "https://github.com/cveloy102/autoturn-vpn/releases/download/v1.0.11/AutoTurn-1.0.11.apk",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 100);
+    }
+    private void publish(AppUpdater.Phase phase, UpdateRelease release, int progress) throws Exception {
+        Method method = AppUpdater.class.getDeclaredMethod("publish", AppUpdater.Phase.class,
+                UpdateRelease.class, int.class, String.class, boolean.class);
+        method.setAccessible(true);
+        ui(() -> {
+            try { method.invoke(AppUpdater.get(activity), phase, release, progress, "", false); }
+            catch (Exception e) { throw new RuntimeException(e); }
+        });
+        settle();
+    }
+    public void testHomeUpdateRemainsAfterLaterAndOpensOffer() throws Exception {
+        launch(); waitCheck();
+        UpdateRelease release = futureRelease();
+        AppUpdater.get(activity).markOffered(release);
+        publish(AppUpdater.Phase.AVAILABLE, release, -1);
+        ui(() -> {
+            try {
+                Method navigate = MainActivity.class.getDeclaredMethod("navigateTo", int.class);
+                navigate.setAccessible(true); navigate.invoke(activity, 0);
+            } catch (Exception e) { throw new RuntimeException(e); }
+        });
+        settle();
+        Button banner = (Button) field(activity, "homeUpdate");
+        assertTrue(banner.isEnabled()); assertTrue(banner.getText().toString().contains(release.version));
+        ui(() -> banner.performClick()); settle();
+        AlertDialog dialog = (AlertDialog) field(field(activity, "updateUi"), "dialog");
+        assertTrue(dialog.isShowing());
+        ui(() -> dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()); settle();
+        assertTrue(banner.isEnabled());
+        android.graphics.Bitmap screenshot = getInstrumentation().getUiAutomation().takeScreenshot();
+        if (screenshot != null) {
+            try (java.io.OutputStream out = new java.io.FileOutputStream(new java.io.File(activity.getCacheDir(), "home-update.png"))) {
+                screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+            } finally { screenshot.recycle(); }
+        }
+        int height = banner.getHeight();
+        publish(AppUpdater.Phase.DOWNLOADING, release, 42);
+        assertTrue(banner.getText().toString().contains("42%")); assertEquals(height, banner.getHeight());
+        publish(AppUpdater.Phase.READY, release, 100);
+        assertTrue(banner.getText().toString().startsWith("Установить")); assertEquals(height, banner.getHeight());
+        publish(AppUpdater.Phase.CURRENT, null, -1);
+        assertFalse(banner.isEnabled()); assertEquals(height, banner.getHeight());
+    }
+    public void testAvailableUpdateRestoresAndSurvivesCheckError() throws Exception {
+        launch(); waitCheck();
+        UpdateRelease release = futureRelease(); AppUpdater.get(activity).markOffered(release);
+        publish(AppUpdater.Phase.AVAILABLE, release, -1);
+        java.lang.reflect.Constructor<AppUpdater> constructor = AppUpdater.class.getDeclaredConstructor(android.content.Context.class);
+        constructor.setAccessible(true);
+        AppUpdater restored = constructor.newInstance(activity.getApplicationContext());
+        assertEquals(release.code, restored.availableRelease().code);
+        assertEquals(AppUpdater.Phase.AVAILABLE, restored.state().phase);
+        publish(AppUpdater.Phase.ERROR, null, -1);
+        assertEquals(release.code, AppUpdater.get(activity).availableRelease().code);
+        publish(AppUpdater.Phase.CURRENT, null, -1);
+        assertNull(AppUpdater.get(activity).availableRelease());
+        assertNull(constructor.newInstance(activity.getApplicationContext()).availableRelease());
+    }
     @Override protected void tearDown() throws Exception {
         if (activity != null && !activity.isFinishing()) ui(() -> activity.finish());
         getInstrumentation().waitForIdleSync(); super.tearDown();

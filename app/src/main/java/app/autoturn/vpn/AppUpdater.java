@@ -58,14 +58,26 @@ final class AppUpdater {
     private boolean polling;
     private boolean restored;
     private boolean checkingManual;
+    private UpdateRelease availableRelease;
 
     private AppUpdater(Context context) {
         this.context = context;
         prefs = context.getSharedPreferences("app_updates", Context.MODE_PRIVATE);
         downloads = context.getSystemService(DownloadManager.class);
         downloadId = prefs.getLong("download_id", 0);
+        try {
+            String saved = prefs.getString("available_release", "");
+            if (!saved.isEmpty()) {
+                UpdateRelease release = UpdateRelease.restore(saved);
+                if (release.code > BuildConfig.VERSION_CODE) {
+                    availableRelease = release;
+                    state = new State(Phase.AVAILABLE, release, -1, "", false);
+                } else prefs.edit().remove("available_release").apply();
+            }
+        } catch (Exception ignored) { prefs.edit().remove("available_release").apply(); }
     }
     synchronized State state() { return state; }
+    synchronized UpdateRelease availableRelease() { return availableRelease; }
     synchronized void attach(Listener listener) {
         this.listener = listener;
         listener.changed(state);
@@ -84,6 +96,14 @@ final class AppUpdater {
     }
     synchronized void detach(Listener value) { if (listener == value) listener = null; }
     private synchronized void publish(Phase phase, UpdateRelease release, int progress, String message, boolean manual) {
+        if (phase == Phase.CURRENT) {
+            availableRelease = null;
+            prefs.edit().remove("available_release").apply();
+        } else if (release != null && release.code > BuildConfig.VERSION_CODE) {
+            availableRelease = release;
+            try { prefs.edit().putString("available_release", release.toJson().toString()).apply(); }
+            catch (Exception ignored) { }
+        }
         state = new State(phase, release, progress, message, manual);
         State event = state;
         handler.post(() -> {

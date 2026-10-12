@@ -82,6 +82,7 @@ public final class MainActivity extends Activity {
     private boolean touching;
     private final Runnable deferredRender = () -> render();
     private TextView terminalHeadline;
+    private Button homeUpdate;
     private TextView terminalDescription;
     private TextView terminalBadge;
     private TextView terminalFoot;
@@ -343,6 +344,11 @@ public final class MainActivity extends Activity {
     }
 
     private void renderTerminalHome(LinearLayout root) {
+        homeUpdate = action("", false, v -> updateUi.openUpdate());
+        homeUpdate.setTextSize(12);
+        root.addView(homeUpdate, new LinearLayout.LayoutParams(-1, dp(48)));
+        gap(root, 16);
+        updateHomeUpdate();
         String state = StatusStore.state(this);
         String detail = StatusStore.detail(this);
         boolean on = StatusStore.ON.equals(state);
@@ -469,6 +475,7 @@ public final class MainActivity extends Activity {
     }
 
     private void updateTerminalStatus() {
+        updateHomeUpdate();
         if (terminalHeadline == null) return;
         String state = StatusStore.state(this);
         String detail = StatusStore.detail(this);
@@ -494,6 +501,25 @@ public final class MainActivity extends Activity {
 
     private void setTextIfChanged(TextView view, String text) {
         if (!view.getText().toString().equals(text)) view.setText(text);
+    }
+
+    void updateHomeUpdate() {
+        if (homeUpdate == null) return;
+        AppUpdater updater = AppUpdater.get(this);
+        UpdateRelease release = updater.availableRelease();
+        AppUpdater.State state = updater.state();
+        String text = "AutoTurn " + BuildConfig.VERSION_NAME;
+        if (release != null) {
+            if (state.phase == AppUpdater.Phase.DOWNLOADING)
+                text = "Скачивание обновления" + (state.progress >= 0 ? " · " + state.progress + "%" : "…") + " →";
+            else if (state.phase == AppUpdater.Phase.VERIFYING) text = "Проверяем обновление… →";
+            else if (state.phase == AppUpdater.Phase.READY) text = "Установить " + release.version + " →";
+            else text = "Доступна версия " + release.version + " →";
+        }
+        setTextIfChanged(homeUpdate, text);
+        homeUpdate.setEnabled(release != null);
+        homeUpdate.setTextColor(release != null ? NEON : MUTED);
+        homeUpdate.setContentDescription(text);
     }
 
     private void terminalToggle(LinearLayout root, String title, boolean checked, View.OnClickListener click) {
