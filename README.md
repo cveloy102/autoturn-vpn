@@ -9,6 +9,7 @@ Android-клиент, который автоматически включает
 [![Android 10+](https://img.shields.io/badge/Android-10%2B-3DDC84?logo=android&logoColor=white)](docs/usage.md)
 [![Latest release](https://img.shields.io/github/v/release/cveloy102/autoturn-vpn?label=release)](https://github.com/cveloy102/autoturn-vpn/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/cveloy102/autoturn-vpn/total?label=downloads)](https://github.com/cveloy102/autoturn-vpn/releases)
+[![Android CI](https://github.com/cveloy102/autoturn-vpn/actions/workflows/android-ci.yml/badge.svg)](https://github.com/cveloy102/autoturn-vpn/actions/workflows/android-ci.yml)
 [![Source](https://img.shields.io/badge/source-GitHub-181717?logo=github)](https://github.com/cveloy102/autoturn-vpn)
 
 **[Скачать APK](https://github.com/cveloy102/autoturn-vpn/releases/latest)** · **[Пошаговая инструкция](docs/usage.md)** · **[История версий](CHANGELOG.md)** · **[Сообщить об ошибке](https://github.com/cveloy102/autoturn-vpn/issues/new/choose)**
@@ -83,7 +84,7 @@ AutoTurn автоматически проверяет наличие новог
 
 ## Документация и разработка
 
-**[Инструкция и FAQ](docs/usage.md)** · **[Сборка и выпуск APK](docs/DEVELOPMENT.md)** · **[Changelog](CHANGELOG.md)** · **[Issues](https://github.com/cveloy102/autoturn-vpn/issues)**
+**[Инструкция и FAQ](docs/usage.md)** · **[Сборка и выпуск APK](docs/DEVELOPMENT.md)** · **[Changelog](CHANGELOG.md)** · **[Как помочь проекту](CONTRIBUTING.md)** · **[Безопасность](SECURITY.md)** · **[Issues](https://github.com/cveloy102/autoturn-vpn/issues)**
 
 Исходники Android находятся в `app/`, панель управления — в `admin-panel/`, сайт — в `site/`. Для серверных компонентов доступны отдельные инструкции: [панель](admin-panel/README.md) и [Telegram relay](admin-panel/relay/README.md). Сведения о происхождении библиотек: [Xray](app/libs/ORIGIN.md), [AmneziaWG](third_party/amneziawg-tunnel/ORIGIN.md).
 
