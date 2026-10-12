@@ -1,0 +1,41 @@
+name: Publish Android website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'landing/**'
+      - 'docs/images/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/configure-pages@v5
+      - name: Assemble Android website
+        run: |
+          mkdir -p _site/images
+          cp landing/index.html landing/styles.css landing/script.js landing/favicon.svg _site/
+          cp docs/images/{home,profiles,app-routing,settings}.png _site/images/
+          touch _site/.nojekyll
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

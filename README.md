@@ -10,7 +10,7 @@ Android-клиент, который переключает VPN по домаш�
 [![Android](https://img.shields.io/badge/Android-10%2B-222222?logo=android&logoColor=white)](docs/usage.md#установка)
 [![Release](https://img.shields.io/github/v/release/cveloy102/autoturn-vpn?color=f43d38&label=release)](https://github.com/cveloy102/autoturn-vpn/releases/latest)
 
-**[Скачать APK](https://github.com/cveloy102/autoturn-vpn/releases/latest)** · **[Инструкция со скриншотами](docs/usage.md)** · **[История версий](CHANGELOG.md)** · **[Сообщить об ошибке](https://github.com/cveloy102/autoturn-vpn/issues/new/choose)**
+**[Сайт AutoTurn](https://cveloy102.github.io/autoturn-vpn/)** · **[Скачать APK](https://github.com/cveloy102/autoturn-vpn/releases/latest)** · **[Инструкция со скриншотами](docs/usage.md)** · **[История версий](CHANGELOG.md)** · **[Сообщить об ошибке](https://github.com/cveloy102/autoturn-vpn/issues/new/choose)**
 
 <table><tr>
 <td align="center"><img src="docs/images/home.png" width="240" alt="AutoTurn 1.0.11: домашняя сеть, VPN выключен, режим Авто"><br>Подключение</td>
