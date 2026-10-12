@@ -1,0 +1,65 @@
+name: Ошибка Android-клиента
+description: Сообщить о проблеме с подключением, автоматикой или интерфейсом.
+title: "[Android] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Не публикуйте профиль, приватные ключи, UUID, пароль, полную ссылку или QR-код. Проверьте скриншоты перед отправкой.
+        Для уязвимостей прочитайте SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Версия AutoTurn
+      placeholder: Например, 1.0.11 из GitHub Releases
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Телефон, Android и оболочка
+      placeholder: POCO F7, Android 16, HyperOS
+    validations:
+      required: true
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Тип подключения
+      options:
+        - AmneziaWG
+        - VLESS + REALITY
+        - Hysteria 2
+        - Не связано с VPN / не знаю
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Режим управления
+      options:
+        - Авто
+        - Включён вручную
+        - Выключен
+        - Не знаю
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: Укажите тип сети, режим приложений и включён ли контроль соединения. Не указывайте личный SSID или адрес сервера.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемый результат
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Что произошло
+      description: Можно приложить скриншот без личных данных.
+    validations:
+      required: true

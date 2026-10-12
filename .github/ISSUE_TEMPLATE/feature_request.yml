@@ -1,0 +1,26 @@
+name: Предложение
+description: Предложить улучшение AutoTurn.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу нужно решить?
+      description: Опишите реальный сценарий использования и что сейчас неудобно.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Предлагаемое поведение
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Компонент
+      options:
+        - Android-клиент
+        - Документация
+        - Серверная панель / relay
+    validations:
+      required: true
