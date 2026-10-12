@@ -13,12 +13,12 @@ Android-клиент, который переключает VPN по домаш�
 **[Скачать APK](https://github.com/cveloy102/autoturn-vpn/releases/latest)** · **[Инструкция со скриншотами](docs/usage.md)** · **[История версий](CHANGELOG.md)** · **[Сообщить об ошибке](https://github.com/cveloy102/autoturn-vpn/issues/new/choose)**
 
 <table><tr>
-<td align="center"><img src="docs/images/vpn-modes.png" width="240" alt="Три режима VPN"><br>Выберите режим</td>
-<td align="center"><img src="docs/images/app-routing.png" width="240" alt="Выбор приложений для VPN"><br>Задайте приложения</td>
-<td align="center"><img src="docs/images/auto-return-light.png" width="240" alt="Таймер возврата в Авто в светлой теме"><br>Вернитесь в Авто</td>
+<td align="center"><img src="docs/images/home.png" width="240" alt="AutoTurn 1.0.11: домашняя сеть, VPN выключен, режим Авто"><br>Подключение</td>
+<td align="center"><img src="docs/images/profiles.png" width="240" alt="Профили AmneziaWG и Hysteria 2, кнопки импорта"><br>Ваши профили</td>
+<td align="center"><img src="docs/images/app-routing.png" width="240" alt="Выбор приложений для VPN"><br>Ваши приложения</td>
 </tr></table>
 
-*Реальные экраны POCO F7: режимы и таймер — 1.0.5, маршрутизация — 0.4.1. [Все скриншоты и их версии](docs/SCREENSHOTS.md).*
+*Реальные экраны AutoTurn 1.0.11 на POCO F7, сняты 12 октября 2026 года. [Все скриншоты](docs/SCREENSHOTS.md).*
 
 </div>
 
