@@ -1,5 +1,5 @@
 name: Предложение
-description: Предложить улучшение AutoTurn.
+description: Предложить улучшение Android-клиента или его документации.
 body:
   - type: textarea
     id: problem
@@ -21,6 +21,5 @@ body:
       options:
         - Android-клиент
         - Документация
-        - Серверная панель / relay
     validations:
       required: true
