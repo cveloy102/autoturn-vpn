@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Инструкция и FAQ
+    url: https://github.com/cveloy102/autoturn-vpn/blob/main/docs/usage.md
+    about: Установка, профили, разрешения, маршрутизация и обновления.
+  - name: Уязвимость
+    url: https://github.com/cveloy102/autoturn-vpn/blob/main/SECURITY.md
+    about: Как сообщить о проблеме безопасности без публикации секретов.
