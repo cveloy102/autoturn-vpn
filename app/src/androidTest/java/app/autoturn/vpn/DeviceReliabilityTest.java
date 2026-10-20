@@ -76,6 +76,7 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
     private void configure(Profile profile, boolean guard, String routing) throws Exception {
         SecureStore store = new SecureStore(context);
         store.activeId = profile.id;
+        store.primaryId = profile.id;
         store.connectionGuard = guard;
         store.manualMode = SecureStore.MANUAL_OFF;
         store.appMode = routing;
@@ -103,6 +104,33 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
                 report("RESTORED: original encrypted settings byte for byte");
             }
         } finally { super.tearDown(); }
+    }
+
+    public void testPrimarySurvivesFailoverAndStartsEverySession() throws Exception {
+        beginLive();
+        Profile good = findProfile(Profile.AMNEZIA);
+        String deadConfig = good.config.replaceAll("(?im)^\\s*Endpoint\\s*=.*$", "Endpoint = 127.0.0.1:9");
+        assertFalse("Fault fixture must replace the endpoint", good.config.equals(deadConfig));
+        Profile primary = new Profile("QA unavailable primary", Profile.AMNEZIA, deadConfig);
+        configure(good, true, AppPolicy.ALL);
+        SecureStore store = new SecureStore(context);
+        store.profiles.clear(); store.profiles.add(good); store.profiles.add(primary); store.save();
+        store.selectPrimary(primary.id);
+        for (int cycle = 1; cycle <= 2; cycle++) {
+            command(SecureStore.MANUAL_ON);
+            waitState(StatusStore.CONNECTING, 5000);
+            assertEquals("Every new session starts with primary", primary.id, new SecureStore(context).activeId);
+            waitState(StatusStore.ON, 60000);
+            SecureStore connected = new SecureStore(context);
+            assertEquals("Working backup carries the traffic", good.id, connected.activeId);
+            assertEquals("Failover must not change the primary", primary.id, connected.primaryId);
+            assertEquals("Primary remains the top card", primary.id, connected.orderedProfiles().get(0).id);
+            verifyTraffic();
+            Thread.sleep(5500);
+            assertEquals("Health ticks retain a working backup", good.id, new SecureStore(context).activeId);
+            report("PASS primary cycle " + cycle + ": primary first, verified backup, primary and order preserved");
+            command(SecureStore.MANUAL_OFF); waitState(StatusStore.OFF, 5000);
+        }
     }
 
     public void testAmneziaRepeatedRealTraffic() throws Exception {
@@ -182,6 +210,7 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
             }
             assertFalse("Dead VLESS must never be reported as verified ON", sawFalseOn);
             assertEquals("Guard chooses working AWG", good.id, new SecureStore(context).activeId);
+            assertEquals("Failover preserves the user primary", bad.id, new SecureStore(context).primaryId);
             waitState(StatusStore.ON, 10000);
             assertEquals(ConnectionProbe.Result.HEALTHY,
                     ConnectionProbe.check(context, context.getSystemService(android.net.ConnectivityManager.class)));

@@ -37,7 +37,9 @@ final class SecureStore {
     private JSONObject originalState;
     private boolean migrateControl;
     final List<Profile> profiles = new ArrayList<>();
+    // activeId is the current connection candidate; primaryId is the user selection.
     String activeId = "";
+    String primaryId = "";
     String homeSsid = "";
     boolean automation = true;
     boolean keepAtHome = false;
@@ -63,6 +65,45 @@ final class SecureStore {
     synchronized Profile activeProfile() {
         for (Profile profile : profiles) if (profile.id.equals(activeId)) return profile;
         return null;
+    }
+
+    synchronized Profile primaryProfile() {
+        for (Profile profile : profiles) if (profile.id.equals(primaryId)) return profile;
+        return null;
+    }
+
+    synchronized List<Profile> orderedProfiles() {
+        List<Profile> ordered = new ArrayList<>();
+        Profile primary = primaryProfile();
+        if (primary != null) ordered.add(primary);
+        for (Profile profile : profiles) if (!profile.id.equals(primaryId)) ordered.add(profile);
+        return ordered;
+    }
+
+    synchronized void selectPrimary(String id) throws Exception {
+        boolean exists = false;
+        for (Profile profile : profiles) if (profile.id.equals(id)) exists = true;
+        if (!exists) throw new IllegalArgumentException("Профиль не найден");
+        String oldPrimary = primaryId, oldActive = activeId;
+        primaryId = id;
+        activeId = id;
+        try { save("primaryId", "activeId"); }
+        catch (Exception e) { primaryId = oldPrimary; activeId = oldActive; throw e; }
+    }
+
+    // Do not let a late recovery overwrite a newer selection from the UI.
+    synchronized boolean chooseConnection(String expectedPrimary, String expectedActive, String nextId) throws Exception {
+        synchronized (WRITE_LOCK) {
+            SecureStore latest = new SecureStore(context);
+            if (!latest.primaryId.equals(expectedPrimary) || !latest.activeId.equals(expectedActive)) return false;
+            boolean exists = false;
+            for (Profile profile : latest.profiles) if (profile.id.equals(nextId)) exists = true;
+            if (!exists) return false;
+            latest.activeId = nextId;
+            latest.save("activeId");
+            load(); originalState = encodeSettings();
+            return true;
+        }
     }
 
     void setControlMode(String mode) throws Exception {
@@ -110,6 +151,7 @@ final class SecureStore {
     synchronized void add(Profile profile) throws Exception {
         profiles.add(profile);
         if (activeId.isEmpty()) activeId = profile.id;
+        if (primaryId.isEmpty()) primaryId = profile.id;
         save();
     }
 
@@ -130,14 +172,17 @@ final class SecureStore {
             Profile old = profiles.get(i);
             if (!old.id.equals(id)) continue;
             String previousActive = activeId;
+            String previousPrimary = primaryId;
             boolean previousAutomation = automation;
             boolean previousKeepAtHome = keepAtHome;
             String previousManualMode = manualMode;
             long previousManualUntil = manualUntil;
             boolean wasActive = id.equals(activeId);
+            boolean wasPrimary = id.equals(primaryId);
             profiles.remove(i);
+            if (wasPrimary) primaryId = profiles.isEmpty() ? "" : profiles.get(0).id;
             if (wasActive) {
-                activeId = profiles.isEmpty() ? "" : profiles.get(0).id;
+                activeId = primaryId;
                 if (activeId.isEmpty()) {
                     automation = true;
                     keepAtHome = false;
@@ -149,13 +194,14 @@ final class SecureStore {
             catch (Exception e) {
                 profiles.add(i, old);
                 activeId = previousActive;
+                primaryId = previousPrimary;
                 automation = previousAutomation;
                 keepAtHome = previousKeepAtHome;
                 manualMode = previousManualMode;
                 manualUntil = previousManualUntil;
                 throw e;
             }
-            return wasActive;
+            return wasActive || wasPrimary;
         }
         throw new IllegalArgumentException("Профиль не найден");
     }
@@ -196,6 +242,7 @@ final class SecureStore {
         for (Profile profile : profiles) items.put(profile.toJson());
         json.put("profiles", items);
         json.put("activeId", activeId);
+        json.put("primaryId", primaryId);
         json.put("homeSsid", homeSsid);
         json.put("automation", automation);
         json.put("keepAtHome", keepAtHome);
@@ -255,6 +302,11 @@ final class SecureStore {
                     json.put("manualUntil", 0);
                 }
             }
+            boolean primaryExists = false;
+            for (int i = 0; i < savedProfiles.length(); i++) {
+                if (savedProfiles.getJSONObject(i).getString("id").equals(json.optString("primaryId"))) primaryExists = true;
+            }
+            if (!primaryExists) json.put("primaryId", savedProfiles.length() == 0 ? "" : savedProfiles.getJSONObject(0).getString("id"));
             JSONArray routedApps = AppPolicy.ONLY.equals(json.getString("appMode")) ? json.getJSONArray("onlyPackages")
                     : AppPolicy.EXCLUDE.equals(json.getString("appMode")) ? json.getJSONArray("excludedPackages") : new JSONArray();
             json.put("selectedPackages", routedApps);
@@ -335,6 +387,7 @@ final class SecureStore {
         profiles.clear();
         for (int i = 0; i < items.length(); i++) profiles.add(Profile.fromJson(items.getJSONObject(i)));
         activeId = json.optString("activeId", "");
+        primaryId = json.optString("primaryId", activeId);
         homeSsid = json.optString("homeSsid", "");
         automation = json.optBoolean("automation", false);
         keepAtHome = json.optBoolean("keepAtHome", false);

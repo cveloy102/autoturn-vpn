@@ -96,9 +96,19 @@ public final class ProfileUiTest extends InstrumentationTestCase {
             Profile imported=saved.profiles.get(saved.profiles.size()-1);
             assertEquals(Profile.AMNEZIA,imported.type);
             View label=profileLabel(main.getWindow().getDecorView(),imported.name); assertNotNull(label);
-            Button select=button((View)label.getParent(),"Выбрать"); assertNotNull(select);
+            Button select=button((View)label.getParent(),"Сделать основным"); assertNotNull(select);
             getInstrumentation().runOnMainSync(select::performClick); Thread.sleep(400);
-            assertEquals(imported.id,new SecureStore(context).activeId);
+            assertEquals(imported.id,new SecureStore(context).primaryId);
+            View selectedLabel=profileLabel(main.getWindow().getDecorView(),imported.name);
+            View selectedCard=(View)selectedLabel.getParent();
+            ViewGroup list=(ViewGroup)selectedCard.getParent();
+            int selectedIndex=list.indexOfChild(selectedCard);
+            for(Profile old:baseline.profiles) {
+                View oldLabel=profileLabel(main.getWindow().getDecorView(),old.name);
+                assertNotNull(oldLabel);
+                assertTrue("Primary card is above every backup", selectedIndex < list.indexOfChild((View)oldLabel.getParent()));
+            }
+            assertNotNull(profileLabel(selectedCard,"■ ОСНОВНОЙ"));
             clickMain("Переименовать профиль "+imported.name);
             AccessibilityNodeInfo input=editable(root()); assertNotNull(input);
             android.os.Bundle text=new android.os.Bundle(); text.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"QA renamed");

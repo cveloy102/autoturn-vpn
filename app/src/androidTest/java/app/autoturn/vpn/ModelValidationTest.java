@@ -28,6 +28,54 @@ public final class ModelValidationTest extends InstrumentationTestCase {
         super.tearDown();
     }
 
+    public void testPrimaryOrderSurvivesFailoverAndNewSelection() throws Exception {
+        SecureStore store = new SecureStore(fixture);
+        Profile first = new Profile("First", Profile.AMNEZIA, "fixture");
+        Profile second = new Profile("Second", Profile.AMNEZIA, "fixture");
+        Profile third = new Profile("Third", Profile.AMNEZIA, "fixture");
+        store.add(first); store.add(second); store.add(third);
+        assertEquals(first.id, store.primaryId);
+        store.selectPrimary(third.id);
+        assertEquals(third.id, store.orderedProfiles().get(0).id);
+        assertEquals(first.id, store.orderedProfiles().get(1).id);
+        assertEquals(second.id, store.orderedProfiles().get(2).id);
+        assertEquals(first.id, store.profiles.get(0).id);
+        assertTrue(store.chooseConnection(third.id, third.id, first.id));
+        SecureStore reread = new SecureStore(fixture);
+        assertEquals(third.id, reread.primaryProfile().id);
+        assertEquals(first.id, reread.activeProfile().id);
+        assertEquals(third.id, reread.orderedProfiles().get(0).id);
+        // A concurrent user selection wins over a late failover result.
+        reread.selectPrimary(second.id);
+        assertFalse(store.chooseConnection(third.id, first.id, second.id));
+        assertEquals(second.id, new SecureStore(fixture).primaryId);
+        assertEquals(second.id, new SecureStore(fixture).activeId);
+        reread.delete(second.id);
+        assertEquals(first.id, new SecureStore(fixture).primaryId);
+    }
+
+    public void testLegacySelectedProfileBecomesPrimary() throws Exception {
+        SecureStore store = new SecureStore(fixture);
+        Profile first = new Profile("First", Profile.AMNEZIA, "fixture");
+        Profile second = new Profile("Second", Profile.AMNEZIA, "fixture");
+        store.add(first); store.add(second);
+        store.selectPrimary(second.id);
+        java.lang.reflect.Method encode = SecureStore.class.getDeclaredMethod("encodeSettings");
+        encode.setAccessible(true);
+        org.json.JSONObject legacy = (org.json.JSONObject) encode.invoke(store);
+        legacy.remove("primaryId");
+        java.lang.reflect.Method write = SecureStore.class.getDeclaredMethod("writeSettings", org.json.JSONObject.class);
+        write.setAccessible(true); write.invoke(store, legacy);
+        SecureStore migrated = new SecureStore(fixture);
+        assertEquals(second.id, migrated.primaryId);
+        assertTrue(migrated.chooseConnection(second.id, second.id, first.id));
+        assertEquals(second.id, new SecureStore(fixture).primaryId);
+        migrated.delete(second.id);
+        assertEquals(first.id, new SecureStore(fixture).primaryId);
+        migrated.delete(first.id);
+        assertEquals("", new SecureStore(fixture).primaryId);
+    }
+
     private void rejects(String input) throws Exception {
         boolean rejected = false;
         try { ProfileImporter.parse("invalid", input); }

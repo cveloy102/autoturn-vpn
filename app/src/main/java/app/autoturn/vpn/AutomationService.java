@@ -199,19 +199,22 @@ public final class AutomationService extends Service {
             AutoReturnReceiver.sync(this);
             if (!guardEnabled(store)) clearHealth();
             if (!store.automation && SecureStore.MANUAL_AUTO.equals(store.manualMode)) {
+                guardProfileId = "";
                 stopSelfResult(decisionStartId); return;
             }
-            Profile profile = store.activeProfile();
+            Profile candidate = store.activeProfile();
             if (SecureStore.MANUAL_OFF.equals(store.manualMode)) {
                 stopCurrent();
                 clearHealth();
+                guardProfileId = "";
                 StatusStore.set(this, StatusStore.OFF, "VPN выключен вручную");
                 updateNotification("VPN выключен вручную");
                 return;
             }
-            if (profile == null || (SecureStore.MANUAL_AUTO.equals(store.manualMode) && store.homeSsid.isEmpty())) {
+            if (candidate == null || (SecureStore.MANUAL_AUTO.equals(store.manualMode) && store.homeSsid.isEmpty())) {
                 stopCurrent();
                 clearHealth();
+                guardProfileId = "";
                 StatusStore.set(this, StatusStore.ERROR, "Выберите профиль и домашний Wi‑Fi");
                 return;
             }
@@ -220,9 +223,19 @@ public final class AutomationService extends Service {
             if (!shouldRun) {
                 stopCurrent();
                 clearHealth();
+                guardProfileId = "";
                 StatusStore.set(this, StatusStore.OFF, "Домашний Wi‑Fi · VPN выключен");
                 updateNotification("VPN выключен дома");
                 return;
+            }
+            // A fresh VPN session always starts with the user's primary profile.
+            // Failover retains guardProfileId so network callbacks keep a working backup.
+            if (guardProfileId.isEmpty() && store.primaryProfile() != null) {
+                if (!store.chooseConnection(store.primaryId, store.activeId, store.primaryId)) {
+                    schedule(0);
+                    return;
+                }
+                candidate = store.activeProfile();
             }
             if (guardEnabled(store) && VpnService.prepare(this) != null) {
                 stopCurrent();
@@ -230,6 +243,7 @@ public final class AutomationService extends Service {
                 StatusStore.set(this, StatusStore.ERROR, "Разрешение VPN отозвано · откройте AutoTurn");
                 return;
             }
+            final Profile profile = candidate;
             if (!profile.id.equals(guardProfileId)) {
                 guardProfileId = profile.id;
                 failedProfiles = 0;
@@ -423,14 +437,14 @@ public final class AutomationService extends Service {
         Profile next = nextProfile(store, current.id);
         Log.i(TAG, "Failover from " + current.type + " to " +
                 (next == null ? current.type : next.type));
+        if (next != null && !store.chooseConnection(store.primaryId, current.id, next.id)) {
+            applyDecision();
+            return;
+        }
         failedProfiles++;
         stopCurrent();
         verified = false;
-        if (next != null) {
-            store.activeId = next.id;
-            store.save();
-            guardProfileId = next.id;
-        }
+        if (next != null) guardProfileId = next.id;
         // If a tunnel worked earlier, retry it once before pausing the whole cycle.
         if (failedProfiles >= store.profiles.size() * (hadHealthyConnection ? 2 : 1)) {
             failedProfiles = 0;
@@ -448,12 +462,13 @@ public final class AutomationService extends Service {
     }
 
     private Profile nextProfile(SecureStore store, String currentId) {
-        if (store.profiles.size() < 2) return null;
-        for (int i = 0; i < store.profiles.size(); i++) {
-            if (currentId.equals(store.profiles.get(i).id))
-                return store.profiles.get((i + 1) % store.profiles.size());
+        java.util.List<Profile> ordered = store.orderedProfiles();
+        if (ordered.size() < 2) return null;
+        for (int i = 0; i < ordered.size(); i++) {
+            if (currentId.equals(ordered.get(i).id))
+                return ordered.get((i + 1) % ordered.size());
         }
-        return store.profiles.get(0);
+        return ordered.get(0);
     }
 
     private void stopCurrent() {

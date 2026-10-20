@@ -311,10 +311,12 @@ public final class MainActivity extends Activity {
     private String contentKey() {
         StringBuilder key = new StringBuilder().append(page).append('|').append(store.theme)
                 .append('|').append(palette.light).append('|').append(store.activeId).append('|').append(store.automation)
+                .append('|').append(store.primaryId)
                 .append('|').append(store.keepAtHome).append('|').append(store.manualMode)
                 .append('|').append(store.autoReturnHours).append('|').append(store.manualUntil)
                 .append('|').append(store.connectionGuard).append('|').append(store.homeSsid)
                 .append('|').append(store.appMode).append('|').append(store.selectedPackages);
+        if (page == PAGE_PROFILES) key.append('|').append(StatusStore.state(this));
         for (Profile profile : store.profiles)
             key.append('|').append(profile.id).append(':').append(profile.name).append(':').append(profile.type);
         return key.toString();
@@ -403,7 +405,7 @@ public final class MainActivity extends Activity {
         signal.addView(terminalFoot, new LinearLayout.LayoutParams(-1, dp(20)));
         root.addView(signal);
         gap(root, 20);
-        terminalInfo(root, "Профиль", active == null ? "Не выбран →" : active.name + " →",
+        terminalInfo(root, "Основной", store.primaryProfile() == null ? "Не выбран →" : store.primaryProfile().name + " →",
                 v -> navigateTo(PAGE_PROFILES));
         terminalNetwork = terminalInfo(root, "Сеть", atHome ? store.homeSsid : networkLabel(), null);
         boolean manual = !SecureStore.MANUAL_AUTO.equals(store.manualMode);
@@ -618,18 +620,25 @@ public final class MainActivity extends Activity {
         TerminalUi.title(root, palette, "Свои маршруты", 27);
         gap(root, 12);
         root.addView(label(store.profiles.isEmpty() ? "Добавьте первое подключение." :
-                "Один активный профиль.\nОстальные — на случай обрыва.", 13, MUTED, false));
+                "Основной — всегда первый при подключении.\nОстальные — резервные, по порядку ниже.", 13, MUTED, false));
         if (!store.connectionGuard && !store.profiles.isEmpty()) {
             gap(root, 6);
             root.addView(label("Для автопереключения включите контроль соединения.", 12, MUTED, false));
         }
         gap(root, 22);
-        for (Profile item : store.profiles) {
-            boolean selected = item.id.equals(store.activeId);
+        String state = StatusStore.state(this);
+        for (Profile item : store.orderedProfiles()) {
+            boolean selected = item.id.equals(store.primaryId);
+            boolean current = item.id.equals(store.activeId);
             LinearLayout entry = block();
             if (selected) entry.setBackground(TerminalUi.surface(this, CARD, NEON));
             if (selected) {
-                entry.addView(label("■ ВЫБРАН", 11, NEON, false));
+                entry.addView(label("■ ОСНОВНОЙ", 11, NEON, false));
+                gap(entry, 6);
+            }
+            if (current && (StatusStore.ON.equals(state) || StatusStore.CONNECTING.equals(state))) {
+                entry.addView(label(StatusStore.ON.equals(state) ? "● ПОДКЛЮЧЁН" : "◌ ПОДКЛЮЧАЕМ", 11,
+                        StatusStore.ON.equals(state) ? palette.online : MUTED, false));
                 gap(entry, 6);
             }
             entry.addView(label(item.name, 16, TEXT, false));
@@ -637,7 +646,7 @@ public final class MainActivity extends Activity {
             entry.addView(label(protocolName(item), 12, MUTED, false));
             gap(entry, 14);
             if (!selected) {
-                entry.addView(action("Выбрать", false, v -> selectProfile(item)));
+                entry.addView(action("Сделать основным", false, v -> selectProfile(item)));
                 gap(entry, 8);
             }
             LinearLayout controls = new LinearLayout(this);
@@ -694,10 +703,10 @@ public final class MainActivity extends Activity {
         gap(content, 13);
         content.addView(label("Что нового", 27, TEXT, true));
         gap(content, 17);
-        TextView changes = label("• Проверка новых версий при открытии — раз в сутки.\n\n" +
-                "• Кнопка «Проверить обновления» в настройках.\n\n" +
-                "• Скачивание из GitHub, проверка APK и установка с подтверждением Android.\n\n" +
-                "• Одна версия для всех телефонов.\n\n" +
+        TextView changes = label("• Основной профиль помечен и всегда находится вверху списка.\n\n" +
+                "• Каждое новое включение VPN начинается с основного профиля.\n\n" +
+                "• При переходе на резервный основной выбор сохраняется.\n\n" +
+                "• Текущее подключение отмечено отдельно.\n\n" +
                 "Профили и настройки сохраняются при обновлении.", 14, MUTED, false);
         changes.setLineSpacing(dp(2), 1f);
         content.addView(changes);
@@ -834,8 +843,8 @@ public final class MainActivity extends Activity {
 
 
     private void selectProfile(Profile profile) {
-        if (profile.id.equals(store.activeId)) return;
-        try { store.activeId = profile.id; store.save("activeId"); refreshAutomation(); render(); }
+        if (profile.id.equals(store.primaryId)) return;
+        try { store.selectPrimary(profile.id); refreshAutomation(); render(); }
         catch (Exception e) { error("Не удалось выбрать профиль"); }
     }
 
@@ -884,7 +893,7 @@ public final class MainActivity extends Activity {
                         if (wasActive && store.activeProfile() == null) {
                             stopAutomation();
                             StatusStore.set(this, StatusStore.OFF, "Профиль удалён · VPN выключен");
-                        } else if (wasActive) refreshAutomation();
+                        } else refreshAutomation();
                         render();
                     } catch (Exception e) { error("Не удалось удалить профиль"); }
                 }).show();
