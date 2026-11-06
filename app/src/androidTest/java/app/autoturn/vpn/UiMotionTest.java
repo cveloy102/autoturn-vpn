@@ -20,6 +20,22 @@ import java.util.Set;
 /** Runs in the installed app process. Never changes saved profiles or routing rules. */
 public final class UiMotionTest extends InstrumentationTestCase {
     private Activity activity;
+    private android.os.PowerManager.WakeLock screenLock;
+
+    @Override protected void setUp() throws Exception {
+        super.setUp();
+        android.os.PowerManager power=getInstrumentation().getTargetContext().getSystemService(android.os.PowerManager.class);
+        screenLock=power.newWakeLock(android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK |
+                android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,"AutoTurn:UiRegression");
+        screenLock.acquire(120000);
+    }
+
+    private void visible(Activity target) {
+        ui(() -> {
+            target.setShowWhenLocked(true); target.setTurnScreenOn(true);
+            target.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        });
+    }
 
     private Object field(Object object, String name) throws Exception {
         Field field = object.getClass().getDeclaredField(name);
@@ -44,6 +60,7 @@ public final class UiMotionTest extends InstrumentationTestCase {
         Intent intent = new Intent(getInstrumentation().getTargetContext(), type);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         activity = getInstrumentation().startActivitySync(intent);
+        visible(activity);
         settle();
         if (activity instanceof MainActivity) {
             AlertDialog notes = (AlertDialog) field(activity, "releaseNotesDialog");
@@ -63,6 +80,7 @@ public final class UiMotionTest extends InstrumentationTestCase {
 
     @Override protected void tearDown() throws Exception {
         if (activity != null) ui(() -> activity.finish());
+        if (screenLock != null && screenLock.isHeld()) screenLock.release();
         getInstrumentation().waitForIdleSync();
         super.tearDown();
     }
@@ -155,6 +173,7 @@ public final class UiMotionTest extends InstrumentationTestCase {
         getInstrumentation().removeMonitor(monitor);
         assertNotNull("Activity recreated", recreated);
         activity = recreated;
+        visible(recreated);
         settle();
         assertEquals(2, field(recreated, "page"));
         assertEquals(y, ((ScrollView) field(recreated, "currentScroll")).getScrollY());
@@ -330,7 +349,7 @@ public final class UiMotionTest extends InstrumentationTestCase {
             for (Profile profile : actual.profiles) after.add(profile.toJson().toString());
             assertEquals(profiles, after);
             assertEquals(baseline.appMode, actual.appMode);
-            assertEquals(baseline.homeSsid, actual.homeSsid);
+            assertEquals(baseline.homeSsids, actual.homeSsids);
         } finally {
             if (activity != null) { ui(() -> activity.finish()); settle(); activity = null; }
             java.nio.file.Files.write(settings.toPath(), backup);
@@ -396,6 +415,7 @@ public final class UiMotionTest extends InstrumentationTestCase {
         getInstrumentation().removeMonitor(monitor);
         assertNotNull(recreated);
         activity = recreated;
+        visible(recreated);
         settle();
         for (int i = 0; i < 30 && !(Boolean) field(recreated, "appsLoaded"); i++) Thread.sleep(200);
         getInstrumentation().waitForIdleSync();

@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | XTLS/libXray | Официальный Android-артефакт v26.9.9; [ORIGIN](../app/libs/ORIGIN.md) | [MIT](../app/libs/libXray.LICENSE) |
 | AmneziaWG Android tunnel | Java-исходники v3.1.20260814 и нативные библиотеки из официального APK; [ORIGIN](../third_party/amneziawg-tunnel/ORIGIN.md) | [Apache-2.0](../third_party/amneziawg-tunnel/LICENSE) |
+| qWDTT / SOCKS5 transport | SpaceNeuroX и WDTT-Plus, точные ревизии и изменения в [ORIGIN](../third_party/qwdtt-client/ORIGIN.md) | [GPL-3.0](../third_party/qwdtt-client/LICENSE); исходники включены |
 
 AmneziaWG GoBackend адаптирован для работы службы в foreground на Android. Файл сборки модуля относится к AutoTurn. При обновлении библиотек сохраняйте происхождение, лицензии и описание местных изменений.
 

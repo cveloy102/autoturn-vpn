@@ -40,7 +40,7 @@ final class SecureStore {
     // activeId is the current connection candidate; primaryId is the user selection.
     String activeId = "";
     String primaryId = "";
-    String homeSsid = "";
+    final Set<String> homeSsids = new LinkedHashSet<>();
     boolean automation = true;
     boolean keepAtHome = false;
     boolean connectionGuard = true;
@@ -76,19 +76,79 @@ final class SecureStore {
         List<Profile> ordered = new ArrayList<>();
         Profile primary = primaryProfile();
         if (primary != null) ordered.add(primary);
-        for (Profile profile : profiles) if (!profile.id.equals(primaryId)) ordered.add(profile);
+        for (Profile profile : profiles)
+            if (!profile.id.equals(primaryId) && !profile.lastResort) ordered.add(profile);
+        for (Profile profile : profiles)
+            if (!profile.id.equals(primaryId) && profile.lastResort) ordered.add(profile);
         return ordered;
     }
 
     synchronized void selectPrimary(String id) throws Exception {
-        boolean exists = false;
-        for (Profile profile : profiles) if (profile.id.equals(id)) exists = true;
-        if (!exists) throw new IllegalArgumentException("Профиль не найден");
-        String oldPrimary = primaryId, oldActive = activeId;
-        primaryId = id;
-        activeId = id;
-        try { save("primaryId", "activeId"); }
-        catch (Exception e) { primaryId = oldPrimary; activeId = oldActive; throw e; }
+        synchronized (WRITE_LOCK) {
+            SecureStore latest = new SecureStore(context);
+            Profile selected = null;
+            for (Profile p : latest.profiles) if (p.id.equals(id)) selected = p;
+            if (selected == null) throw new IllegalArgumentException("Профиль не найден");
+            if (id.equals(latest.primaryId)) { load(); originalState = encodeSettings(); return; }
+            Profile previous = latest.primaryProfile();
+            if (previous != null) {
+                latest.profiles.remove(previous);
+                latest.profiles.add(0, new Profile(previous.id, previous.name, previous.type, previous.config, false));
+            }
+            for (int i = 0; i < latest.profiles.size(); i++) {
+                Profile p = latest.profiles.get(i);
+                if (p.id.equals(id)) latest.profiles.set(i, new Profile(p.id, p.name, p.type, p.config, false));
+            }
+            latest.primaryId = id; latest.activeId = id;
+            latest.save("primaryId", "activeId");
+            load(); originalState = encodeSettings();
+        }
+    }
+
+    synchronized void reorderProfiles(boolean lastResort, List<String> ids) throws Exception {
+        synchronized (WRITE_LOCK) {
+            SecureStore latest = new SecureStore(context);
+            List<Profile> group = new ArrayList<>();
+            for (Profile p : latest.orderedProfiles())
+                if (!p.id.equals(latest.primaryId) && p.lastResort == lastResort) group.add(p);
+            Set<String> expected = new LinkedHashSet<>();
+            for (Profile p : group) expected.add(p.id);
+            if (ids.size() != expected.size() || !expected.equals(new LinkedHashSet<>(ids)))
+                throw new IllegalStateException("Список профилей изменился. Повторите перемещение.");
+            java.util.Map<String, Profile> byId = new java.util.HashMap<>();
+            for (Profile p : group) byId.put(p.id, p);
+            int index = 0;
+            for (int i = 0; i < latest.profiles.size(); i++) {
+                Profile p = latest.profiles.get(i);
+                if (!p.id.equals(latest.primaryId) && p.lastResort == lastResort)
+                    latest.profiles.set(i, byId.get(ids.get(index++)));
+            }
+            latest.save(); load(); originalState = encodeSettings();
+        }
+    }
+
+    boolean isHomeSsid(String ssid) {
+        return ssid != null && !ssid.isEmpty() && homeSsids.contains(ssid);
+    }
+
+    synchronized boolean addHomeSsid(String ssid) throws Exception {
+        if (ssid == null || ssid.isEmpty() || "<unknown ssid>".equals(ssid) ||
+                ssid.getBytes(StandardCharsets.UTF_8).length > 32)
+            throw new IllegalArgumentException("Введите имя Wi-Fi до 32 байт");
+        synchronized (WRITE_LOCK) {
+            SecureStore latest = new SecureStore(context);
+            boolean added = latest.homeSsids.add(ssid);
+            if (added) latest.save("homeSsids");
+            load(); originalState = encodeSettings(); return added;
+        }
+    }
+
+    synchronized void removeHomeSsid(String ssid) throws Exception {
+        synchronized (WRITE_LOCK) {
+            SecureStore latest = new SecureStore(context);
+            if (latest.homeSsids.remove(ssid)) latest.save("homeSsids");
+            load(); originalState = encodeSettings();
+        }
     }
 
     // Do not let a late recovery overwrite a newer selection from the UI.
@@ -159,12 +219,27 @@ final class SecureStore {
         for (int i = 0; i < profiles.size(); i++) {
             Profile old = profiles.get(i);
             if (!old.id.equals(id)) continue;
-            profiles.set(i, new Profile(old.id, name, old.type, old.config));
+            profiles.set(i, new Profile(old.id, name, old.type, old.config, old.lastResort));
             try { save(); }
             catch (Exception e) { profiles.set(i, old); throw e; }
             return;
         }
         throw new IllegalArgumentException("Профиль не найден");
+    }
+
+    synchronized void setLastResort(String id, boolean enabled) throws Exception {
+        synchronized (WRITE_LOCK) {
+            SecureStore latest = new SecureStore(context);
+            if (id.equals(latest.primaryId)) throw new IllegalArgumentException("Сначала выберите другой основной профиль");
+            Profile found = null;
+            for (Profile p : latest.profiles) if (p.id.equals(id)) found = p;
+            if (found == null) throw new IllegalArgumentException("Профиль не найден");
+            if (found.lastResort == enabled) { load(); originalState = encodeSettings(); return; }
+            // Append to the destination group; preserve every other profile's rank.
+            latest.profiles.remove(found);
+            latest.profiles.add(new Profile(found.id, found.name, found.type, found.config, enabled));
+            latest.save(); load(); originalState = encodeSettings();
+        }
     }
 
     synchronized boolean delete(String id) throws Exception {
@@ -180,7 +255,7 @@ final class SecureStore {
             boolean wasActive = id.equals(activeId);
             boolean wasPrimary = id.equals(primaryId);
             profiles.remove(i);
-            if (wasPrimary) primaryId = profiles.isEmpty() ? "" : profiles.get(0).id;
+            if (wasPrimary) primaryId = profiles.isEmpty() ? "" : orderedProfiles().get(0).id;
             if (wasActive) {
                 activeId = primaryId;
                 if (activeId.isEmpty()) {
@@ -243,7 +318,11 @@ final class SecureStore {
         json.put("profiles", items);
         json.put("activeId", activeId);
         json.put("primaryId", primaryId);
-        json.put("homeSsid", homeSsid);
+        JSONArray homes = new JSONArray();
+        for (String ssid : homeSsids) homes.put(ssid);
+        json.put("homeSsids", homes);
+        // Keep the first network readable by 1.2.0 if the owner rolls back.
+        json.put("homeSsid", homeSsids.isEmpty() ? "" : homeSsids.iterator().next());
         json.put("automation", automation);
         json.put("keepAtHome", keepAtHome);
         json.put("connectionGuard", connectionGuard);
@@ -349,7 +428,13 @@ final class SecureStore {
                 if (old == null || merged.containsKey(id)) merged.put(id, edited);
             }
         }
+        List<String> originalOrder = new ArrayList<>(), desiredOrder = new ArrayList<>();
+        for (String id : before.keySet()) if (after.containsKey(id)) originalOrder.add(id);
+        for (String id : after.keySet()) if (before.containsKey(id)) desiredOrder.add(id);
         JSONArray result = new JSONArray();
+        if (!originalOrder.equals(desiredOrder)) {
+            for (String id : after.keySet()) if (merged.containsKey(id)) result.put(merged.remove(id));
+        }
         for (JSONObject profile : merged.values()) result.put(profile);
         return result;
     }
@@ -388,7 +473,17 @@ final class SecureStore {
         for (int i = 0; i < items.length(); i++) profiles.add(Profile.fromJson(items.getJSONObject(i)));
         activeId = json.optString("activeId", "");
         primaryId = json.optString("primaryId", activeId);
-        homeSsid = json.optString("homeSsid", "");
+        homeSsids.clear();
+        JSONArray homes = json.optJSONArray("homeSsids");
+        if (homes != null) {
+            for (int i = 0; i < homes.length(); i++) {
+                String name = homes.optString(i, "");
+                if (!name.isEmpty() && !"<unknown ssid>".equals(name)) homeSsids.add(name);
+            }
+        } else {
+            String legacyHome = json.optString("homeSsid", "");
+            if (!legacyHome.isEmpty() && !"<unknown ssid>".equals(legacyHome)) homeSsids.add(legacyHome);
+        }
         automation = json.optBoolean("automation", false);
         keepAtHome = json.optBoolean("keepAtHome", false);
         connectionGuard = json.optBoolean("connectionGuard", true);

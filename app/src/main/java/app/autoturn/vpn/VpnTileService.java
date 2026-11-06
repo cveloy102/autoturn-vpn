@@ -116,7 +116,7 @@ public final class VpnTileService extends TileService {
         String mode = SecureStore.MANUAL_AUTO.equals(manualMode) ?
                 "Авто" : "Ручной";
         tile.setIcon(Icon.createWithResource(this, R.drawable.ic_vpn_tile));
-        String connection = profile == null ? "VPN" : Profile.HYSTERIA2.equals(profile.type) ?
+        String connection = profile == null ? "VPN" : Profile.QWDTT.equals(profile.type) ? "qWDTT" : Profile.HYSTERIA2.equals(profile.type) ?
                 "Hysteria 2" : Profile.AMNEZIA.equals(profile.type) ? "AmneziaWG" : "VLESS";
         // HyperOS hides the subtitle on small tiles. Keep the connection in the visible label.
         tile.setLabel("AutoTurn\n" + connection);

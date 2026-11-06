@@ -16,6 +16,10 @@ final class ProfileImporter {
     static Profile parse(String nameHint, String input) throws Exception {
         String value = input.trim();
         if (value.length() > 1024 * 1024) throw new IllegalArgumentException("Файл слишком большой");
+        if (value.startsWith("qwdtt://")) {
+            QwdttConfig parsed = QwdttConfig.parse(value);
+            return new Profile(cleanName(parsed.name, "qWDTT"), Profile.QWDTT, value);
+        }
         if (value.startsWith("vless://")) return parseVless(value);
         if (value.startsWith("hysteria2://") || value.startsWith("hy2://"))
             return parseHysteria2(value);
@@ -24,7 +28,7 @@ final class ProfileImporter {
             Config.parse(new BufferedReader(new StringReader(value)));
             return new Profile(cleanName(nameHint, "AmneziaWG"), Profile.AMNEZIA, value);
         }
-        throw new IllegalArgumentException("Нужна ссылка VLESS/Hysteria 2, Xray JSON или AmneziaWG .conf");
+        throw new IllegalArgumentException("Нужна ссылка VLESS/Hysteria 2/qWDTT, Xray JSON или AmneziaWG .conf");
     }
 
     private static Profile parseVless(String value) {

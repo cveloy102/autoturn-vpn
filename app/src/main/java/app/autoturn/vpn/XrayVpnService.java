@@ -24,6 +24,7 @@ public final class XrayVpnService extends VpnService {
     private static final String TAG = "AutoTurnXray";
     static final String ACTION_START = "app.autoturn.vpn.XRAY_START";
     static final String ACTION_STOP = "app.autoturn.vpn.XRAY_STOP";
+    static final String ACTION_CAPTCHA = "app.autoturn.vpn.QWDTT_CAPTCHA";
     static final String EXTRA_PROFILE_ID = "profileId";
     private static final String CHANNEL = "xray";
     // libXray has one native core per process. Service instances must share its queue.
@@ -32,6 +33,7 @@ public final class XrayVpnService extends VpnService {
     private ParcelFileDescriptor tunnel;
     private PowerManager.WakeLock tunnelWakeLock;
     private volatile long requestedGeneration;
+    private volatile QwdttTransport qwdtt;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -42,6 +44,12 @@ public final class XrayVpnService extends VpnService {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null) return START_NOT_STICKY;
+        if (ACTION_CAPTCHA.equals(intent.getAction())) {
+            QwdttTransport transport = qwdtt;
+            if (transport != null) transport.captchaResult(intent.getStringExtra("session"),
+                    intent.getStringExtra("request"), intent.getStringExtra("token"));
+            return START_NOT_STICKY;
+        }
         long commandGeneration = ++requestedGeneration;
         if (ACTION_STOP.equals(intent.getAction())) {
             worker.execute(() -> { stopTunnel(); stopSelfResult(startId); });
@@ -73,11 +81,21 @@ public final class XrayVpnService extends VpnService {
             SecureStore store = new SecureStore(this);
             Profile profile = store.activeProfile();
             if (profile == null || !profile.id.equals(id) ||
-                    (!Profile.VLESS.equals(profile.type) && !Profile.HYSTERIA2.equals(profile.type)))
+                    (!Profile.VLESS.equals(profile.type) && !Profile.HYSTERIA2.equals(profile.type) &&
+                            !Profile.QWDTT.equals(profile.type)))
                 throw new IllegalStateException("Profile changed");
-            protocolName = Profile.HYSTERIA2.equals(profile.type) ? "Hysteria 2" : "Reality";
+            boolean isQwdtt = Profile.QWDTT.equals(profile.type);
+            protocolName = isQwdtt ? "qWDTT" : Profile.HYSTERIA2.equals(profile.type) ? "Hysteria 2" : "Reality";
 
-            JSONArray outbounds = outbounds(profile.config, profile.type);
+            JSONArray outbounds;
+            if (isQwdtt) {
+                acquireWakeLock();
+                qwdtt = new QwdttTransport(this);
+                outbounds = qwdtt.start(profile, () -> {
+                    try { return currentRequest(id, commandGeneration); }
+                    catch (Exception ignored) { return false; }
+                });
+            } else outbounds = outbounds(profile.config, profile.type);
             Set<String> routedApps = AppPolicy.routed(this, store);
             // These profiles use an IPv4-only server. Do not advertise a synthetic IPv6
             // address: cached AAAA/DoH results otherwise send apps into an unreachable path.
@@ -86,7 +104,16 @@ public final class XrayVpnService extends VpnService {
                     .addAddress("10.123.45.1", 30).addRoute("0.0.0.0", 0)
                     .addDnsServer("1.1.1.1")
                     .setBlocking(true);
-            AppPolicy.apply(builder, store.appMode, routedApps);
+            if (isQwdtt) {
+                // The external transport cannot use Xray's protect(fd) callback. Its entire
+                // UID must bypass the TUN; health probes explicitly use authenticated SOCKS.
+                routedApps.remove(getPackageName());
+                if (AppPolicy.ONLY.equals(store.appMode)) AppPolicy.apply(builder, store.appMode, routedApps);
+                else {
+                    routedApps.add(getPackageName());
+                    AppPolicy.apply(builder, AppPolicy.EXCLUDE, routedApps);
+                }
+            } else AppPolicy.apply(builder, store.appMode, routedApps);
             tunnel = builder.establish();
             if (tunnel == null) throw new IllegalStateException("VPN interface unavailable");
 
@@ -102,6 +129,7 @@ public final class XrayVpnService extends VpnService {
             inbounds.put(new JSONObject().put("tag", "tun-in")
                     .put("protocol", "tun")
                     .put("settings", new JSONObject().put("name", "autoturn").put("mtu", 1500)));
+            if (isQwdtt) inbounds.put(qwdtt.probeInbound());
             config.put("inbounds", inbounds);
             // The current Reality server is reachable over IPv4, but cannot serve IPv6
             // destinations. Return no AAAA records to apps rather than handing them
@@ -120,12 +148,10 @@ public final class XrayVpnService extends VpnService {
                             .put("port", "53").put("outboundTag", "dns-out"))));
             invoke("runXray", new JSONObject().put("xrayJson", config.toString()));
             if (!currentRequest(id, commandGeneration)) { stopTunnel(); return; }
+            if (isQwdtt) qwdtt.markVpnReady();
             // Foreground service / battery exemption alone do not keep CPU timers running.
             // QUIC and its health checks must remain alive while this tunnel is active.
-            tunnelWakeLock = getSystemService(PowerManager.class).newWakeLock(
-                    PowerManager.PARTIAL_WAKE_LOCK, "AutoTurn:XrayTunnel");
-            tunnelWakeLock.setReferenceCounted(false);
-            tunnelWakeLock.acquire();
+            acquireWakeLock();
             boolean checking = store.connectionGuard;
             StatusStore.set(this, checking ? StatusStore.CONNECTING : StatusStore.ON,
                     checking ? protocolName + " · проверяем соединение" : protocolName + " включён");
@@ -179,6 +205,7 @@ public final class XrayVpnService extends VpnService {
     }
 
     private void stopTunnel() {
+        if (qwdtt != null) { qwdtt.close(); qwdtt = null; }
         if (tunnelWakeLock != null) {
             if (tunnelWakeLock.isHeld()) tunnelWakeLock.release();
             tunnelWakeLock = null;
@@ -193,6 +220,14 @@ public final class XrayVpnService extends VpnService {
             try { tunnel.close(); } catch (Exception ignored) { }
             tunnel = null;
         }
+    }
+
+    private void acquireWakeLock() {
+        if (tunnelWakeLock != null && tunnelWakeLock.isHeld()) return;
+        tunnelWakeLock = getSystemService(PowerManager.class).newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK, "AutoTurn:XrayTunnel");
+        tunnelWakeLock.setReferenceCounted(false);
+        tunnelWakeLock.acquire();
     }
 
     @Override public void onRevoke() {

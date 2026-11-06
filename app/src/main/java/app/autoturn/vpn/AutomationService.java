@@ -211,14 +211,14 @@ public final class AutomationService extends Service {
                 updateNotification("VPN выключен вручную");
                 return;
             }
-            if (candidate == null || (SecureStore.MANUAL_AUTO.equals(store.manualMode) && store.homeSsid.isEmpty())) {
+            if (candidate == null || (SecureStore.MANUAL_AUTO.equals(store.manualMode) && store.homeSsids.isEmpty())) {
                 stopCurrent();
                 clearHealth();
                 guardProfileId = "";
                 StatusStore.set(this, StatusStore.ERROR, "Выберите профиль и домашний Wi‑Fi");
                 return;
             }
-            boolean atHome = store.homeSsid.equals(ssid);
+            boolean atHome = store.isHomeSsid(ssid);
             boolean shouldRun = SecureStore.MANUAL_ON.equals(store.manualMode) || !atHome;
             if (!shouldRun) {
                 stopCurrent();
@@ -298,7 +298,7 @@ public final class AutomationService extends Service {
                 runningPolicy = policy;
                 startForegroundService(start);
                 updateNotification(Profile.HYSTERIA2.equals(profile.type) ?
-                        "Подключаем Hysteria 2" : "Подключаем Reality");
+                        "Подключаем Hysteria 2" : Profile.QWDTT.equals(profile.type) ? "Подключаем qWDTT" : "Подключаем Reality");
             }
             startedAt = SystemClock.elapsedRealtime();
             if (guardEnabled(store)) Log.i(TAG, "Started " + profile.type + "; checking connection");
@@ -339,7 +339,7 @@ public final class AutomationService extends Service {
         if (SecureStore.MANUAL_OFF.equals(store.manualMode)) return false;
         if (store.activeProfile() == null) return false;
         return SecureStore.MANUAL_ON.equals(store.manualMode) ||
-                (!store.homeSsid.isEmpty() && !store.homeSsid.equals(ssid));
+                (!store.homeSsids.isEmpty() && !store.isHomeSsid(ssid));
     }
 
     private void checkHealth() {
@@ -363,8 +363,15 @@ public final class AutomationService extends Service {
             }
             final int probeGeneration = generation;
             final String probeProfileId = runningId;
+            final boolean qwdtt = Profile.QWDTT.equals(runningType);
+            if (qwdtt && QwdttState.pending(this, runningId)) {
+                StatusStore.set(this, StatusStore.CONNECTING, "qWDTT · требуется капча VK — откройте AutoTurn");
+                scheduleHealth(2000);
+                return;
+            }
             activeProbe = probes.submit(() -> {
-                ConnectionProbe.Result result = ConnectionProbe.check(this, connectivity);
+                ConnectionProbe.Result result = qwdtt ? ConnectionProbe.checkQwdtt(this, connectivity, probeProfileId) :
+                        ConnectionProbe.check(this, connectivity);
                 enqueue(() -> finishHealth(result, probeGeneration, probeProfileId));
             });
         } catch (Exception e) {
@@ -402,7 +409,8 @@ public final class AutomationService extends Service {
                 stopCurrent();
                 StatusStore.set(this, StatusStore.ERROR, "Разрешение VPN отозвано · откройте AutoTurn");
             } else if ((result == ConnectionProbe.Result.VPN_MISSING || result == ConnectionProbe.Result.FAILED) && !verified &&
-                    SystemClock.elapsedRealtime() - startedAt < START_GRACE_MS) {
+                    SystemClock.elapsedRealtime() - startedAt <
+                            (Profile.QWDTT.equals(runningType) ? 310_000 : START_GRACE_MS)) {
                 scheduleHealth(1000);
             } else {
                 if (result == ConnectionProbe.Result.FAILED && ++consecutiveTrafficFailures < 2) {
@@ -485,7 +493,7 @@ public final class AutomationService extends Service {
         try {
             if (Profile.AMNEZIA.equals(runningType) && backend != null)
                 backend.setState(tunnel, Tunnel.State.DOWN, null);
-            if (Profile.VLESS.equals(runningType) || Profile.HYSTERIA2.equals(runningType)) {
+            if (Profile.VLESS.equals(runningType) || Profile.HYSTERIA2.equals(runningType) || Profile.QWDTT.equals(runningType)) {
                 Intent stop = new Intent(this, XrayVpnService.class).setAction(XrayVpnService.ACTION_STOP);
                 startService(stop);
             }

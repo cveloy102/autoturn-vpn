@@ -52,6 +52,7 @@ Lint-отчёт создаётся в `app/build/reports/lint-results-debug.html
 | `app/src/androidTest/` | Проверки моделей, UI, обновления и реальных подключений |
 | `app/libs/` | Android-библиотека libXray и её происхождение |
 | `third_party/amneziawg-tunnel/` | Исходники и нативные библиотеки AmneziaWG |
+| `third_party/qwdtt-client/` | Исходники и лицензия GPL-3.0 qWDTT; готовый arm64 native лежит в app/src/main/jniLibs |
 | `tools/prepare-update.py` | Подготовка APK и `update.json` для Releases |
 | `docs/` | Инструкция, приватность и сведения о проверках |
 
@@ -77,3 +78,7 @@ Lint-отчёт создаётся в `app/build/reports/lint-results-debug.html
 - Инструкция, история версий и подписи скриншотов соответствуют опубликованному поведению.
 
 Исторические результаты не заменяют проверку новой версии. [Результаты тестов](TESTING.md) · [Сторонние компоненты](THIRD_PARTY.md) · [Участие в проекте](../CONTRIBUTING.md).
+
+## Сборка qWDTT
+
+Готовый arm64 native включён в исходники релиза. Для его пересборки используйте `tools/build-qwdtt.ps1` с Go 1.27.3; точные upstream-ревизии и параметры указаны в `third_party/qwdtt-client/ORIGIN.md`. Полные исходники и GPL-3.0 включены в репозиторий. Локальные проверки: `tools/test-qwdtt.ps1`.

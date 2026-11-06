@@ -69,6 +69,8 @@ public final class MainActivity extends Activity {
     private AlertDialog releaseNotesDialog;
     private UpdateUi updateUi;
     private AlertDialog controlDialog;
+    private AlertDialog profileDialog;
+    private AlertDialog wifiDialog;
     private LinearLayout shell;
     private FrameLayout pageHost;
     private ScrollView currentScroll;
@@ -80,6 +82,7 @@ public final class MainActivity extends Activity {
     private final String[] cachedKeys = new String[3];
     private long lastScrollTime;
     private boolean touching;
+    private boolean profileDragging;
     private final Runnable deferredRender = () -> render();
     private TextView terminalHeadline;
     private Button homeUpdate;
@@ -145,6 +148,8 @@ public final class MainActivity extends Activity {
         if (updateUi != null) updateUi.destroy();
         if (releaseNotesDialog != null) releaseNotesDialog.dismiss();
         if (controlDialog != null) controlDialog.dismiss();
+        if (profileDialog != null) profileDialog.dismiss();
+        if (wifiDialog != null) wifiDialog.dismiss();
         if (Build.VERSION.SDK_INT >= 33 && backCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
             backCallback = null;
@@ -210,7 +215,7 @@ public final class MainActivity extends Activity {
             return;
         }
         if (currentScroll != null && page == renderedPage &&
-                (touching || SystemClock.uptimeMillis() - lastScrollTime < 180)) {
+                (touching || profileDragging || SystemClock.uptimeMillis() - lastScrollTime < 180)) {
             currentScroll.removeCallbacks(deferredRender);
             currentScroll.postDelayed(deferredRender, 180);
             return;
@@ -314,11 +319,15 @@ public final class MainActivity extends Activity {
                 .append('|').append(store.primaryId)
                 .append('|').append(store.keepAtHome).append('|').append(store.manualMode)
                 .append('|').append(store.autoReturnHours).append('|').append(store.manualUntil)
-                .append('|').append(store.connectionGuard).append('|').append(store.homeSsid)
+                .append('|').append(store.connectionGuard).append('|').append(store.homeSsids)
                 .append('|').append(store.appMode).append('|').append(store.selectedPackages);
         if (page == PAGE_PROFILES) key.append('|').append(StatusStore.state(this));
+        Profile current = store.activeProfile();
+        if (page == PAGE_HOME && current != null && Profile.QWDTT.equals(current.type))
+            key.append('|').append(QwdttState.pending(this, current.id));
         for (Profile profile : store.profiles)
-            key.append('|').append(profile.id).append(':').append(profile.name).append(':').append(profile.type);
+            key.append('|').append(profile.id).append(':').append(profile.name).append(':').append(profile.type)
+                    .append(':').append(profile.lastResort);
         return key.toString();
     }
 
@@ -404,10 +413,19 @@ public final class MainActivity extends Activity {
         terminalFoot.setEllipsize(android.text.TextUtils.TruncateAt.END);
         signal.addView(terminalFoot, new LinearLayout.LayoutParams(-1, dp(20)));
         root.addView(signal);
+        if (active != null && Profile.QWDTT.equals(active.type) && QwdttState.pending(this, active.id)) {
+            gap(root, 12);
+            root.addView(action("Пройти капчу VK →", false, v -> {
+                org.json.JSONObject pending = QwdttState.read(this);
+                startActivity(new Intent(this, QwdttCaptchaActivity.class)
+                        .putExtra("session", pending.optString("session"))
+                        .putExtra("request", pending.optString("captchaRequest")));
+            }));
+        }
         gap(root, 20);
         terminalInfo(root, "Основной", store.primaryProfile() == null ? "Не выбран →" : store.primaryProfile().name + " →",
                 v -> navigateTo(PAGE_PROFILES));
-        terminalNetwork = terminalInfo(root, "Сеть", atHome ? store.homeSsid : networkLabel(), null);
+        terminalNetwork = terminalInfo(root, "Сеть", atHome ? currentWifiSsid() : networkLabel(), null);
         boolean manual = !SecureStore.MANUAL_AUTO.equals(store.manualMode);
         terminalInfo(root, "Режим", modeLabel() + " →", v -> showModeChooser());
         if (manual) terminalInfo(root, "Возврат в Авто", returnLabel(), null);
@@ -435,7 +453,7 @@ public final class MainActivity extends Activity {
 
     private String protocolName(Profile profile) {
         if (profile == null) return "—";
-        return Profile.VLESS.equals(profile.type) ? "VLESS · REALITY" :
+        return Profile.QWDTT.equals(profile.type) ? "qWDTT · VK TURN" : Profile.VLESS.equals(profile.type) ? "VLESS · REALITY" :
                 Profile.HYSTERIA2.equals(profile.type) ? "HYSTERIA 2" : "AMNEZIAWG";
     }
 
@@ -496,7 +514,7 @@ public final class MainActivity extends Activity {
         setTextIfChanged(terminalFoot, on ? (store.connectionGuard && detail.startsWith("VPN проверен") ?
                 "● ДОСТУП ПРОВЕРЕН" : "● VPN ЗАПУЩЕН") : atHome ? "■ ДОМАШНЯЯ СЕТЬ" :
                 connecting ? "◌ УСТАНАВЛИВАЕМ СВЯЗЬ" : error ? "! НЕТ СОЕДИНЕНИЯ" : "■ VPN ВЫКЛЮЧЕН");
-        setTextIfChanged(terminalNetwork, atHome ? store.homeSsid : networkLabel());
+        setTextIfChanged(terminalNetwork, atHome ? currentWifiSsid() : networkLabel());
         setTextIfChanged(terminalPower, on || connecting ? "Выключить VPN  ↗" : "Включить VPN  ↗");
         terminalSignal.setState(state);
     }
@@ -571,13 +589,31 @@ public final class MainActivity extends Activity {
         gap(root, 18);
         TerminalUi.divider(root, palette.divider);
         gap(root, 18);
-        root.addView(label("// Домашний Wi-Fi", 13, TEXT, false));
+        root.addView(label("// Домашние Wi-Fi сети", 13, TEXT, false));
         gap(root, 7);
-        root.addView(label(store.homeSsid.isEmpty() ? "Не выбран" : store.homeSsid, 15, TEXT, false));
-        gap(root, 6);
-        root.addView(label("VPN выключается в этой сети.", 12, MUTED, false));
+        root.addView(label("В режиме Авто VPN выключается в любой из этих сетей.", 12, MUTED, false));
         gap(root, 12);
-        root.addView(action("Выбрать текущую сеть →", false, v -> chooseHome()));
+        if (store.homeSsids.isEmpty()) root.addView(label("Пока нет домашних сетей.", 13, MUTED, false));
+        String currentSsid = currentWifiSsid();
+        for (String ssid : store.homeSsids) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(12), dp(4), dp(4), dp(4));
+            row.setBackground(TerminalUi.surface(this, CARD, palette.border));
+            LinearLayout text = new LinearLayout(this); text.setOrientation(LinearLayout.VERTICAL);
+            TextView name = label(ssid, 14, TEXT, false);
+            name.setMaxLines(2); name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            text.addView(name);
+            if (ssid.equals(currentSsid)) text.addView(label("● ТЕКУЩАЯ СЕТЬ", 10, palette.online, false));
+            row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+            Button remove = iconAction("×", "Удалить домашнюю сеть " + ssid, v -> removeHomeWifi(ssid));
+            row.addView(remove, new LinearLayout.LayoutParams(dp(48), dp(48)));
+            root.addView(row); gap(root, 6);
+        }
+        gap(root, 6);
+        root.addView(action("+ Добавить текущую сеть", false, v -> chooseHome()));
+        gap(root, 8);
+        root.addView(action("Добавить по имени →", false, v -> addHomeWifiByName()));
         gap(root, 18);
         TerminalUi.divider(root, palette.divider);
         gap(root, 18);
@@ -620,57 +656,140 @@ public final class MainActivity extends Activity {
         TerminalUi.title(root, palette, "Свои маршруты", 27);
         gap(root, 12);
         root.addView(label(store.profiles.isEmpty() ? "Добавьте первое подключение." :
-                "Основной — всегда первый при подключении.\nОстальные — резервные, по порядку ниже.", 13, MUTED, false));
+                "Каждый запуск — с основного.\nРезервы — сверху вниз.", 13, MUTED, false));
         if (!store.connectionGuard && !store.profiles.isEmpty()) {
             gap(root, 6);
             root.addView(label("Для автопереключения включите контроль соединения.", 12, MUTED, false));
         }
-        gap(root, 22);
-        String state = StatusStore.state(this);
-        for (Profile item : store.orderedProfiles()) {
-            boolean selected = item.id.equals(store.primaryId);
-            boolean current = item.id.equals(store.activeId);
-            LinearLayout entry = block();
-            if (selected) entry.setBackground(TerminalUi.surface(this, CARD, NEON));
-            if (selected) {
-                entry.addView(label("■ ОСНОВНОЙ", 11, NEON, false));
-                gap(entry, 6);
-            }
-            if (current && (StatusStore.ON.equals(state) || StatusStore.CONNECTING.equals(state))) {
-                entry.addView(label(StatusStore.ON.equals(state) ? "● ПОДКЛЮЧЁН" : "◌ ПОДКЛЮЧАЕМ", 11,
-                        StatusStore.ON.equals(state) ? palette.online : MUTED, false));
-                gap(entry, 6);
-            }
-            entry.addView(label(item.name, 16, TEXT, false));
-            gap(entry, 6);
-            entry.addView(label(protocolName(item), 12, MUTED, false));
-            gap(entry, 14);
-            if (!selected) {
-                entry.addView(action("Сделать основным", false, v -> selectProfile(item)));
-                gap(entry, 8);
-            }
-            LinearLayout controls = new LinearLayout(this);
-            Button rename = action("Имя", false, v -> renameProfile(item));
-            rename.setContentDescription("Переименовать профиль " + item.name);
-            Button delete = action("Удалить", false, v -> deleteProfile(item));
-            delete.setContentDescription("Удалить профиль " + item.name);
-            LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(0, -2, 1);
-            left.setMargins(0, 0, dp(8), 0);
-            controls.addView(rename, left);
-            controls.addView(delete, new LinearLayout.LayoutParams(0, -2, 1));
-            entry.addView(controls);
-            root.addView(entry);
-            gap(root, 12);
-        }
+        gap(root, 18);
+        root.addView(label("Порядок — за ≡. Действия — в ⋮.", 11, MUTED, false));
+        renderProfileGroup(root, "01 / ОСНОВНОЙ", null);
+        renderProfileGroup(root, "02 / ОБЫЧНЫЕ РЕЗЕРВЫ", false);
+        renderProfileGroup(root, "03 / ПОСЛЕДНИЕ РЕЗЕРВЫ", true);
         gap(root, 8);
         root.addView(action("+ Добавить профиль  ↗", true, v -> openFile()));
         gap(root, 10);
         root.addView(action("Вставить ссылку →", false, v -> importClipboard()));
         gap(root, 12);
-        root.addView(label(".conf / .json / .txt\nVLESS / Hysteria 2 / AmneziaWG", 12, MUTED, false));
+        root.addView(label(".conf / .json / .txt\nVLESS / Hysteria 2 / AmneziaWG / qWDTT\nqWDTT добавляется как последний резерв.", 12, MUTED, false));
     }
 
 
+
+    private void renderProfileGroup(LinearLayout root, String heading, Boolean lastResort) {
+        gap(root, 20);
+        root.addView(label(heading, 11, NEON, false));
+        gap(root, 9);
+        java.util.List<Profile> profiles = new java.util.ArrayList<>();
+        for (Profile p : store.orderedProfiles()) {
+            boolean primary = p.id.equals(store.primaryId);
+            if (lastResort == null ? primary : !primary && p.lastResort == lastResort) profiles.add(p);
+        }
+        if (profiles.isEmpty()) {
+            root.addView(label(lastResort == null ? "Добавьте основной профиль." : "Нет профилей", 12, MUTED, false));
+            return;
+        }
+        ProfileOrderLayout group = new ProfileOrderLayout(this, (ScrollView) root.getParent(), new ProfileOrderLayout.Listener() {
+            @Override public void dragging(boolean active) {
+                profileDragging = active;
+                if (!active) { touching = false; root.postDelayed(() -> render(), 200); }
+            }
+            @Override public void reordered(java.util.List<String> ids) {
+                try {
+                    store.reorderProfiles(Boolean.TRUE.equals(lastResort), ids);
+                    root.announceForAccessibility("Порядок профилей сохранён");
+                } catch (Exception e) {
+                    try { store = new SecureStore(MainActivity.this); } catch (Exception ignored) { }
+                    cachedKeys[PAGE_PROFILES] = null;
+                    renderedKey = "";
+                    error("Не удалось сохранить порядок. Список обновлён; повторите перемещение.");
+                }
+            }
+        });
+        group.setContentDescription(heading);
+        for (Profile p : profiles) {
+            LinearLayout row = new LinearLayout(this);
+            row.setTag(p.id); row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(4), dp(6), dp(4), dp(6));
+            row.setMinimumHeight(dp(68));
+            row.setBackground(TerminalUi.surface(this, CARD, lastResort == null ? NEON : palette.border));
+            TextView handle = label(lastResort == null ? "■" : "≡", 23, lastResort == null ? NEON : MUTED, false);
+            handle.setGravity(Gravity.CENTER);
+            handle.setContentDescription((lastResort == null ? "Основной профиль " : "Переместить профиль ") + p.name);
+            row.addView(handle, new LinearLayout.LayoutParams(dp(40), dp(48)));
+            if (lastResort != null) group.attachHandle(handle, row);
+            LinearLayout text = new LinearLayout(this); text.setOrientation(LinearLayout.VERTICAL);
+            TextView name = label(p.name, 15, TEXT, false);
+            name.setMaxLines(2); name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            text.addView(name);
+            String state = StatusStore.state(this);
+            boolean current = p.id.equals(store.activeId);
+            String detail = protocolName(p);
+            if (current && (StatusStore.ON.equals(state) || StatusStore.CONNECTING.equals(state)))
+                detail += StatusStore.ON.equals(state) ? " · ● Подключён" : " · ◌ Подключаем";
+            TextView subtitle = label(detail, 10, current && StatusStore.ON.equals(state) ? palette.online : MUTED, false);
+            subtitle.setMaxLines(2); text.addView(subtitle);
+            row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+            row.addView(iconAction("⋮", "Действия профиля " + p.name, v -> showProfileMenu(p)),
+                    new LinearLayout.LayoutParams(dp(48), dp(48)));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+            params.setMargins(0, 0, 0, dp(6)); group.addView(row, params);
+        }
+        root.addView(group);
+    }
+
+    private Button iconAction(String symbol, String description, View.OnClickListener click) {
+        Button button = action(symbol, false, click);
+        button.setTextSize(23); button.setPadding(0, 0, 0, 0);
+        button.setMinWidth(0); button.setMinimumWidth(0);
+        button.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x18000000 | (TEXT & 0x00ffffff)), null, null));
+        button.setContentDescription(description); return button;
+    }
+
+    private void showProfileMenu(Profile profile) {
+        java.util.List<String> labels = new java.util.ArrayList<>();
+        java.util.List<Runnable> actions = new java.util.ArrayList<>();
+        if (!profile.id.equals(store.primaryId)) {
+            labels.add("Сделать основным"); actions.add(() -> selectProfile(profile));
+            labels.add(profile.lastResort ? "В обычные резервы" : "В последние резервы");
+            actions.add(() -> {
+                try { store.setLastResort(profile.id, !profile.lastResort); render(); }
+                catch (Exception e) { error("Не удалось изменить группу профиля"); }
+            });
+            java.util.List<String> ids = new java.util.ArrayList<>();
+            for (Profile p : store.orderedProfiles())
+                if (!p.id.equals(store.primaryId) && p.lastResort == profile.lastResort) ids.add(p.id);
+            int index = ids.indexOf(profile.id);
+            if (index > 0) {
+                labels.add("Выше в очереди"); actions.add(() -> moveProfile(profile, -1));
+            }
+            if (index >= 0 && index < ids.size() - 1) {
+                labels.add("Ниже в очереди"); actions.add(() -> moveProfile(profile, 1));
+            }
+        }
+        labels.add("Переименовать"); actions.add(() -> renameProfile(profile));
+        labels.add("Удалить"); actions.add(() -> deleteProfile(profile));
+        AlertDialog menu = new AlertDialog.Builder(this).setTitle(profile.name)
+                .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
+                .setNegativeButton("Закрыть", null).show();
+        profileDialog = menu;
+        TerminalUi.styleDialog(menu, palette);
+    }
+
+    private void moveProfile(Profile profile, int delta) {
+        try {
+            store = new SecureStore(this);
+            java.util.List<String> ids = new java.util.ArrayList<>();
+            for (Profile p : store.orderedProfiles())
+                if (!p.id.equals(store.primaryId) && p.lastResort == profile.lastResort) ids.add(p.id);
+            int index = ids.indexOf(profile.id), next = index + delta;
+            if (index >= 0 && next >= 0 && next < ids.size()) {
+                java.util.Collections.swap(ids, index, next);
+                store.reorderProfiles(profile.lastResort, ids); render();
+            }
+        } catch (Exception e) { error("Не удалось изменить порядок"); }
+    }
 
     private void applyTheme() {
         palette = ThemePalette.of(store.theme, getResources().getConfiguration());
@@ -703,10 +822,10 @@ public final class MainActivity extends Activity {
         gap(content, 13);
         content.addView(label("Что нового", 27, TEXT, true));
         gap(content, 17);
-        TextView changes = label("• Основной профиль помечен и всегда находится вверху списка.\n\n" +
-                "• Каждое новое включение VPN начинается с основного профиля.\n\n" +
-                "• При переходе на резервный основной выбор сохраняется.\n\n" +
-                "• Текущее подключение отмечено отдельно.\n\n" +
+        TextView changes = label("• qWDTT: импорт ссылок и подключение через VK TURN на Android arm64.\n\n" +
+                "• Компактные профили: основной, обычные и последние резервы в отдельных блоках.\n\n" +
+                "• Перетаскивайте резервы за ≡, чтобы задать очередь. Все действия доступны через ⋮.\n\n" +
+                "• Можно сохранить несколько домашних Wi-Fi сетей. В режиме Авто VPN выключается в любой из них.\n\n" +
                 "Профили и настройки сохраняются при обновлении.", 14, MUTED, false);
         changes.setLineSpacing(dp(2), 1f);
         content.addView(changes);
@@ -879,6 +998,7 @@ public final class MainActivity extends Activity {
         }));
         dialog.show();
         TerminalUi.styleDialog(dialog, palette);
+        profileDialog = dialog;
     }
 
     private void deleteProfile(Profile profile) {
@@ -898,6 +1018,7 @@ public final class MainActivity extends Activity {
                     } catch (Exception e) { error("Не удалось удалить профиль"); }
                 }).show();
         TerminalUi.styleDialog(dialog, palette);
+        profileDialog = dialog;
     }
 
     private void chooseHome() {
@@ -910,22 +1031,63 @@ public final class MainActivity extends Activity {
         saveCurrentWifi();
     }
 
-    private void saveCurrentWifi() {
+    private String currentWifiSsid() {
+        try {
         WifiManager manager = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
         WifiInfo info = manager == null ? null : manager.getConnectionInfo();
         String ssid = info == null ? WifiManager.UNKNOWN_SSID : info.getSSID();
         if (ssid == null || ssid.equals(WifiManager.UNKNOWN_SSID) || ssid.isEmpty()) {
-            error("Подключитесь к домашнему Wi‑Fi и включите геолокацию телефона");
-            return;
+            return "";
         }
         if (ssid.length() > 1 && ssid.startsWith("\"") && ssid.endsWith("\""))
             ssid = ssid.substring(1, ssid.length() - 1);
-        try { store.homeSsid = ssid; store.save(); refreshAutomation(); render(); }
-        catch (Exception e) { error("Не удалось сохранить сеть"); }
+        return ssid;
+        } catch (SecurityException denied) { return ""; }
+    }
+
+    private void saveCurrentWifi() {
+        String ssid = currentWifiSsid();
+        if (ssid.isEmpty()) { error("Подключитесь к домашнему Wi-Fi и включите геолокацию телефона"); return; }
+        try {
+            boolean added = store.addHomeSsid(ssid); refreshAutomation(); render();
+            if (!added) android.widget.Toast.makeText(this, "Эта сеть уже добавлена", android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Exception e) { error("Не удалось сохранить сеть"); }
+    }
+
+    private void addHomeWifiByName() {
+        EditText input = new EditText(this); input.setSingleLine(true);
+        input.setHint("Имя Wi-Fi (SSID)"); input.setTextColor(TEXT); input.setHintTextColor(MUTED);
+        input.setTypeface(Typeface.MONOSPACE); input.setPadding(dp(18), dp(12), dp(18), dp(12));
+        input.setBackground(TerminalUi.surface(this, CARD, palette.border));
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Добавить домашнюю сеть")
+                .setMessage("Введите точное имя сети с учётом регистра.")
+                .setView(input).setNegativeButton("Отмена", null).setPositiveButton("Добавить", null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String ssid = input.getText().toString();
+            try {
+                boolean added = store.addHomeSsid(ssid); dialog.dismiss(); refreshAutomation(); render();
+                if (!added) android.widget.Toast.makeText(this, "Эта сеть уже добавлена", android.widget.Toast.LENGTH_SHORT).show();
+            } catch (IllegalArgumentException e) { input.setError(e.getMessage()); }
+            catch (Exception e) { error("Не удалось сохранить сеть"); }
+        }));
+        dialog.show(); TerminalUi.styleDialog(dialog, palette);
+        wifiDialog = dialog;
+    }
+
+    private void removeHomeWifi(String ssid) {
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Удалить домашнюю сеть?")
+                .setMessage("«" + ssid + "» больше не будет считаться домашней." +
+                        (store.homeSsids.size() == 1 ? "\nДля режима Авто потребуется добавить домашнюю сеть." : ""))
+                .setNegativeButton("Отмена", null).setPositiveButton("Удалить", (d, w) -> {
+                    try { store.removeHomeSsid(ssid); refreshAutomation(); render(); }
+                    catch (Exception e) { error("Не удалось удалить сеть"); }
+                }).show();
+        TerminalUi.styleDialog(dialog, palette);
+        wifiDialog = dialog;
     }
 
     private void chooseAutomaticMode() {
-        if (store.activeProfile() == null || store.homeSsid.isEmpty()) {
+        if (store.activeProfile() == null || store.homeSsids.isEmpty()) {
             error("Сначала выберите профиль и домашнюю сеть");
             return;
         }

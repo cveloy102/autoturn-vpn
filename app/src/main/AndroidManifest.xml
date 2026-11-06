@@ -38,6 +38,8 @@
             </intent-filter>
         </activity>
         <activity android:name=".AppRoutingActivity" android:exported="false" />
+        <activity android:name=".QwdttCaptchaActivity" android:exported="false"
+            android:excludeFromRecents="true" android:enableOnBackInvokedCallback="true" />
         <service android:name=".AutomationService"
             android:exported="false"
             android:foregroundServiceType="specialUse">

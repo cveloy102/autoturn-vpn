@@ -51,7 +51,7 @@ public final class ModelValidationTest extends InstrumentationTestCase {
         assertEquals(second.id, new SecureStore(fixture).primaryId);
         assertEquals(second.id, new SecureStore(fixture).activeId);
         reread.delete(second.id);
-        assertEquals(first.id, new SecureStore(fixture).primaryId);
+        assertEquals(third.id, new SecureStore(fixture).primaryId);
     }
 
     public void testLegacySelectedProfileBecomesPrimary() throws Exception {
@@ -81,6 +81,162 @@ public final class ModelValidationTest extends InstrumentationTestCase {
         try { ProfileImporter.parse("invalid", input); }
         catch (Exception expected) { rejected = true; }
         assertTrue("Malformed/unsupported profile must be rejected", rejected);
+    }
+
+    private java.util.List<String> order(SecureStore store) {
+        java.util.List<String> result = new java.util.ArrayList<>();
+        for (Profile p : store.orderedProfiles()) result.add(p.id);
+        return result;
+    }
+
+    public void testBothReserveGroupsPersistManualRankingAndConcurrentRename() throws Exception {
+        SecureStore s = new SecureStore(fixture);
+        Profile main = new Profile("Main", Profile.AMNEZIA, "main");
+        Profile a = new Profile("A", Profile.AMNEZIA, "a"), b = new Profile("B", Profile.AMNEZIA, "b");
+        Profile c = new Profile("C", Profile.QWDTT, "c"), d = new Profile("D", Profile.QWDTT, "d");
+        for (Profile p : new Profile[]{main, a, c, b, d}) s.add(p);
+        SecureStore oldEditor = new SecureStore(fixture);
+        s.reorderProfiles(false, java.util.Arrays.asList(b.id, a.id));
+        s.reorderProfiles(true, java.util.Arrays.asList(d.id, c.id));
+        assertTrue(s.chooseConnection(main.id, main.id, d.id));
+        oldEditor.rename(a.id, "Renamed A");
+        s = new SecureStore(fixture);
+        assertEquals(java.util.Arrays.asList(main.id,b.id,a.id,d.id,c.id), order(s));
+        assertEquals(d.id, s.activeId); assertEquals(main.id,s.primaryId);
+        for (Profile p : s.profiles) if (p.id.equals(a.id)) assertEquals("Renamed A",p.name);
+        s.setLastResort(b.id,true);
+        assertEquals(java.util.Arrays.asList(main.id,a.id,d.id,c.id,b.id),order(new SecureStore(fixture)));
+        s.setLastResort(c.id,false);
+        assertEquals(java.util.Arrays.asList(main.id,a.id,c.id,d.id,b.id),order(new SecureStore(fixture)));
+    }
+
+    public void testNewPrimaryDemotesOldPrimaryToFirstOrdinaryReserve() throws Exception {
+        SecureStore s = new SecureStore(fixture);
+        Profile old = new Profile("Old primary",Profile.QWDTT,"old");
+        Profile normal = new Profile("Ordinary",Profile.AMNEZIA,"normal");
+        Profile last = new Profile("Last",Profile.QWDTT,"last");
+        s.add(old);s.add(normal);s.add(last);
+        s.selectPrimary(last.id);
+        s = new SecureStore(fixture);
+        assertEquals(java.util.Arrays.asList(last.id,old.id,normal.id), order(s));
+        for(Profile p:s.profiles) assertFalse("Old and new primary are ordinary",p.lastResort);
+        assertEquals(last.id,s.activeId);
+        s.selectPrimary(last.id);
+        assertEquals(java.util.Arrays.asList(last.id,old.id,normal.id),order(s));
+        s.delete(last.id);
+        assertEquals(old.id,new SecureStore(fixture).primaryId);
+    }
+
+    public void testInvalidAndStaleRankingDoesNotLoseProfiles() throws Exception {
+        SecureStore s=new SecureStore(fixture);
+        Profile main=new Profile("Main",Profile.AMNEZIA,"main");
+        Profile a=new Profile("A",Profile.AMNEZIA,"a"),b=new Profile("B",Profile.AMNEZIA,"b");
+        s.add(main);s.add(a);s.add(b);
+        byte[] before=Files.readAllBytes(new File(fixture.getFilesDir(),"settings.enc").toPath());
+        for(java.util.List<String> ids:java.util.Arrays.asList(java.util.Arrays.asList(a.id,a.id),
+                java.util.Arrays.asList(a.id),java.util.Arrays.asList(a.id,main.id))) {
+            try {s.reorderProfiles(false,ids); fail("Invalid ranking accepted");}
+            catch(IllegalStateException expected) { }
+            assertTrue(java.util.Arrays.equals(before,Files.readAllBytes(new File(fixture.getFilesDir(),"settings.enc").toPath())));
+        }
+        SecureStore concurrent=new SecureStore(fixture);
+        Profile added=new Profile("Concurrent",Profile.AMNEZIA,"new");concurrent.add(added);
+        try {s.reorderProfiles(false,java.util.Arrays.asList(b.id,a.id));fail("Stale group accepted");}
+        catch(IllegalStateException expected) { }
+        assertEquals(4,new SecureStore(fixture).profiles.size());
+    }
+
+    public void testHomeWifiMigrationAndEmptyListIsNotResurrected() throws Exception {
+        SecureStore s=new SecureStore(fixture);
+        s.add(new Profile("Main",Profile.AMNEZIA,"fixture"));
+        java.lang.reflect.Method encode=SecureStore.class.getDeclaredMethod("encodeSettings");encode.setAccessible(true);
+        java.lang.reflect.Method write=SecureStore.class.getDeclaredMethod("writeSettings",org.json.JSONObject.class);write.setAccessible(true);
+        org.json.JSONObject legacy=(org.json.JSONObject)encode.invoke(s);
+        legacy.remove("homeSsids");legacy.put("homeSsid","Дом");write.invoke(s,legacy);
+        s=new SecureStore(fixture);
+        assertEquals(new LinkedHashSet<>(java.util.Arrays.asList("Дом")),s.homeSsids);
+        assertTrue(s.isHomeSsid("Дом")); assertFalse(s.isHomeSsid("дом"));
+        assertFalse(s.isHomeSsid(""));assertFalse(s.isHomeSsid(null));
+        assertTrue(s.addHomeSsid("Office"));assertFalse(s.addHomeSsid("Дом"));
+        assertEquals(2,new SecureStore(fixture).homeSsids.size());
+        s.removeHomeSsid("Дом");s.removeHomeSsid("Office");
+        s=new SecureStore(fixture);assertTrue(s.homeSsids.isEmpty());
+        org.json.JSONObject saved=(org.json.JSONObject)encode.invoke(s);
+        assertEquals("",saved.getString("homeSsid"));
+        // An explicit empty new list takes precedence even over an old stale scalar.
+        saved.put("homeSsid","Stale home");write.invoke(s,saved);
+        assertTrue(new SecureStore(fixture).homeSsids.isEmpty());
+    }
+
+    public void testHomeWifiConcurrentEditsPreserveManualModeAndExactSsid() throws Exception {
+        SecureStore a=new SecureStore(fixture),b=new SecureStore(fixture);
+        a.addHomeSsid("Home"); b.addHomeSsid("Office");
+        a.setControlMode(SecureStore.MANUAL_OFF);
+        b.addHomeSsid(" Home ");
+        SecureStore result=new SecureStore(fixture);
+        assertEquals(3,result.homeSsids.size());assertTrue(result.isHomeSsid(" Home "));
+        assertEquals(SecureStore.MANUAL_OFF,result.manualMode);
+        b.removeHomeSsid("Office");assertTrue(new SecureStore(fixture).isHomeSsid("Home"));
+        for(String invalid:new String[]{"","<unknown ssid>","12345678901234567890123456789012345"}) {
+            try {b.addHomeSsid(invalid);fail("Invalid SSID accepted");}catch(IllegalArgumentException expected) { }
+        }
+    }
+
+    public void testQwdttImportAndLastResortSurvivesRenameAndReload() throws Exception {
+        Profile qwdtt = ProfileImporter.parse("import", "qwdtt://config?peer=vpn.example:56002" +
+                "&hashes=abcdefgh_12345678&pass=fixture-only&name=Router+WDTT&workers=18&port=9000");
+        assertEquals(Profile.QWDTT, qwdtt.type);
+        assertEquals("Router WDTT", qwdtt.name);
+        assertTrue(qwdtt.lastResort);
+        SecureStore store = new SecureStore(fixture);
+        Profile primary = new Profile("Main", Profile.AMNEZIA, "fixture");
+        Profile normal = new Profile("Normal", Profile.VLESS, "fixture");
+        store.add(primary); store.add(qwdtt); store.add(normal);
+        assertEquals(normal.id, store.orderedProfiles().get(1).id);
+        assertEquals(qwdtt.id, store.orderedProfiles().get(2).id);
+        store.rename(qwdtt.id, "Last TURN");
+        store = new SecureStore(fixture);
+        assertTrue(store.orderedProfiles().get(2).lastResort);
+        assertTrue(store.chooseConnection(primary.id, primary.id, qwdtt.id));
+        assertEquals(primary.id, store.primaryId);
+        assertEquals(primary.id, store.orderedProfiles().get(0).id);
+        store.setLastResort(qwdtt.id, false);
+        assertEquals(normal.id, store.orderedProfiles().get(1).id);
+        assertEquals(qwdtt.id, store.orderedProfiles().get(2).id);
+        store.setLastResort(qwdtt.id, true);
+        store.selectPrimary(qwdtt.id);
+        assertEquals(qwdtt.id, store.orderedProfiles().get(0).id);
+        assertEquals(primary.id, store.orderedProfiles().get(1).id);
+    }
+
+    public void testQwdttRejectsBrokenAndAmbiguousLinks() throws Exception {
+        String valid = "qwdtt://config?peer=vpn.example:56002&hashes=abcdefgh_12345678&pass=fixture";
+        rejects(valid + "&pass=other");
+        rejects(valid + "&workers=0");
+        rejects(valid + "&workers=109");
+        rejects(valid + "&port=80");
+        rejects(valid.replace(":56002", ":65536"));
+        rejects(valid.replace("hashes=abcdefgh_12345678", "hashes=abcdefgh,abcdefgh"));
+        rejects(valid.replace("pass=fixture", "pass=%0Ainject"));
+        rejects(valid.replace("peer=vpn.example:56002", "peer=user@vpn.example:56002"));
+        rejects(valid.replace("qwdtt://config", "qwdtt://other"));
+    }
+
+    public void testQwdttCaptchaOnlyAllowsHttpsVkOrigins() {
+        assertTrue(QwdttCaptchaActivity.allowedUrl("https://id.vk.com/captcha?session=fixture"));
+        assertTrue(QwdttCaptchaActivity.allowedUrl("https://api.vk.ru/captcha"));
+        for (String url : new String[]{"http://id.vk.com/", "https://vk.com.evil.example/",
+                "https://evilvk.com/", "https://user@vk.com/", "file:///etc/passwd",
+                "javascript:alert(1)", "https://vk.com:444/"})
+            assertFalse(QwdttCaptchaActivity.allowedUrl(url));
+    }
+
+    public void testQwdttHttpProbeAcceptsCarriageReturn() {
+        assertTrue(ConnectionProbe.successfulHttpStatus("HTTP/1.1 200 OK\r"));
+        assertTrue(ConnectionProbe.successfulHttpStatus("HTTP/1.0 302 Found\r\n"));
+        assertFalse(ConnectionProbe.successfulHttpStatus("HTTP/1.1 500 Error\r"));
+        assertFalse(ConnectionProbe.successfulHttpStatus("invalid 200 OK\r"));
+        assertFalse(ConnectionProbe.successfulHttpStatus(null));
     }
 
     public void testMigrationPreservesIntentAndSetsTwoHourReturnOnce() throws Exception {

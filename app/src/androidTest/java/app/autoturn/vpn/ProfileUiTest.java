@@ -30,6 +30,23 @@ public final class ProfileUiTest extends InstrumentationTestCase {
     }
     private void clickDialog(String text) throws Exception {
         Thread.sleep(400);
+        // Native list rows can expose clickability on their parent rather than the text
+        // node. Exercise the actual visible dialog widget instead of stale AA nodes.
+        java.lang.reflect.Field dialogField=MainActivity.class.getDeclaredField("profileDialog");dialogField.setAccessible(true);
+        android.app.AlertDialog current=(android.app.AlertDialog)dialogField.get(main);
+        if(current!=null && current.isShowing()) {
+            android.widget.ListView list=current.getListView();
+            if(list!=null)for(int i=0;i<list.getCount();i++)if(text.equals(list.getItemAtPosition(i).toString())) {
+                final int position=i;
+                getInstrumentation().runOnMainSync(()->list.performItemClick(list.getChildAt(position),position,list.getItemIdAtPosition(position)));
+                Thread.sleep(400);getInstrumentation().waitForIdleSync();return;
+            }
+            Button direct=button(current.getWindow().getDecorView(),text);
+            if(direct!=null) {
+                getInstrumentation().runOnMainSync(direct::performClick);
+                Thread.sleep(400);getInstrumentation().waitForIdleSync();return;
+            }
+        }
         AccessibilityNodeInfo root = root();
         assertNotNull(root);
         java.util.List<AccessibilityNodeInfo> found = root.findAccessibilityNodeInfosByText(text);
@@ -75,6 +92,9 @@ public final class ProfileUiTest extends InstrumentationTestCase {
         java.io.File file=new java.io.File(context.getFilesDir(),"settings.enc");
         byte[] original=Files.readAllBytes(file.toPath());
         SecureStore baseline=new SecureStore(context);
+        android.os.PowerManager.WakeLock screenLock=context.getSystemService(android.os.PowerManager.class)
+                .newWakeLock(android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK | android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,"AutoTurn:ProfileUi");
+        screenLock.acquire(120000);
         android.content.ClipboardManager clipboard=context.getSystemService(android.content.ClipboardManager.class);
         android.content.ClipData previousClipboard=null;
         boolean clipboardChanged=false;
@@ -84,6 +104,10 @@ public final class ProfileUiTest extends InstrumentationTestCase {
             context.startForegroundService(new Intent(context,AutomationService.class).setAction(AutomationService.ACTION_REFRESH));
             Thread.sleep(1200);
             main=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            getInstrumentation().runOnMainSync(() -> {
+                main.setShowWhenLocked(true); main.setTurnScreenOn(true);
+                main.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            });
             Thread.sleep(500);
             java.lang.reflect.Field notesField=MainActivity.class.getDeclaredField("releaseNotesDialog"); notesField.setAccessible(true);
             android.app.AlertDialog notes=(android.app.AlertDialog)notesField.get(main);
@@ -96,29 +120,28 @@ public final class ProfileUiTest extends InstrumentationTestCase {
             Profile imported=saved.profiles.get(saved.profiles.size()-1);
             assertEquals(Profile.AMNEZIA,imported.type);
             View label=profileLabel(main.getWindow().getDecorView(),imported.name); assertNotNull(label);
-            Button select=button((View)label.getParent(),"Сделать основным"); assertNotNull(select);
-            getInstrumentation().runOnMainSync(select::performClick); Thread.sleep(400);
+            clickMain("Действия профиля "+imported.name); clickDialog("Сделать основным");
             assertEquals(imported.id,new SecureStore(context).primaryId);
             View selectedLabel=profileLabel(main.getWindow().getDecorView(),imported.name);
-            View selectedCard=(View)selectedLabel.getParent();
-            ViewGroup list=(ViewGroup)selectedCard.getParent();
-            int selectedIndex=list.indexOfChild(selectedCard);
+            View selectedCard=(View)selectedLabel.getParent().getParent();
+            int[] selectedPosition=new int[2];selectedCard.getLocationOnScreen(selectedPosition);
             for(Profile old:baseline.profiles) {
                 View oldLabel=profileLabel(main.getWindow().getDecorView(),old.name);
                 assertNotNull(oldLabel);
-                assertTrue("Primary card is above every backup", selectedIndex < list.indexOfChild((View)oldLabel.getParent()));
+                int[] oldPosition=new int[2];oldLabel.getLocationOnScreen(oldPosition);
+                assertTrue("Primary row is above every backup",selectedPosition[1]<oldPosition[1]);
             }
-            assertNotNull(profileLabel(selectedCard,"■ ОСНОВНОЙ"));
-            clickMain("Переименовать профиль "+imported.name);
+            assertNotNull(profileLabel(main.getWindow().getDecorView(),"01 / ОСНОВНОЙ"));
+            clickMain("Действия профиля "+imported.name);clickDialog("Переименовать");
             AccessibilityNodeInfo input=editable(root()); assertNotNull(input);
             android.os.Bundle text=new android.os.Bundle(); text.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"QA renamed");
             assertTrue(input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,text));
             clickDialog("Сохранить");
             saved=new SecureStore(context);
             assertEquals("QA renamed",saved.profiles.get(saved.profiles.size()-1).name);
-            clickMain("Удалить профиль QA renamed"); clickDialog("Отмена");
+            clickMain("Действия профиля QA renamed"); clickDialog("Удалить"); clickDialog("Отмена");
             assertEquals(baseline.profiles.size()+1,new SecureStore(context).profiles.size());
-            clickMain("Удалить профиль QA renamed"); clickDialog("Удалить");
+            clickMain("Действия профиля QA renamed"); clickDialog("Удалить"); clickDialog("Удалить");
             assertEquals(baseline.profiles.size(),new SecureStore(context).profiles.size());
             byte[] beforeInvalid=Files.readAllBytes(file.toPath());
             call("importText",new Class<?>[]{String.class,String.class},"broken","not a profile");
@@ -131,6 +154,7 @@ public final class ProfileUiTest extends InstrumentationTestCase {
             assertEquals(baseline.profiles.size()+1,saved.profiles.size());
             assertEquals("ClipboardFixture",saved.profiles.get(saved.profiles.size()-1).name);
         } finally {
+            if(screenLock.isHeld())screenLock.release();
             if(clipboardChanged) {
                 if(previousClipboard!=null)clipboard.setPrimaryClip(previousClipboard); else clipboard.clearPrimaryClip();
             }

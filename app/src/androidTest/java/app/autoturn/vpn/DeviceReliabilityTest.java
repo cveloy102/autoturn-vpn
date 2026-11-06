@@ -282,17 +282,17 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
         for (int cycle = 1; cycle <= 2; cycle++) {
             SecureStore store = new SecureStore(context);
             store.automation = true; store.manualMode = SecureStore.MANUAL_AUTO;
-            store.homeSsid = home; store.keepAtHome = false; store.save(); refresh();
+            store.homeSsids.clear(); store.homeSsids.add(home); store.keepAtHome = false; store.save(); refresh();
             Thread.sleep(1200); waitState(StatusStore.OFF, 15000);
             store = new SecureStore(context); store.setControlMode(SecureStore.MANUAL_ON); refresh();
             waitState(StatusStore.ON, 45000);
             command(SecureStore.MANUAL_OFF); waitState(StatusStore.OFF, 5000);
-            store = new SecureStore(context); store.homeSsid = "autoturn-test-away";
+            store = new SecureStore(context); store.homeSsids.clear(); store.homeSsids.add("autoturn-test-away");
             store.keepAtHome = false; store.save(); refresh();
             Thread.sleep(1500);
             assertEquals("Away cannot override manual OFF", StatusStore.OFF, StatusStore.state(context));
             command(SecureStore.MANUAL_AUTO); waitState(StatusStore.ON, 45000);
-            store = new SecureStore(context); store.homeSsid = home; store.save(); refresh();
+            store = new SecureStore(context); store.homeSsids.clear(); store.homeSsids.add(home); store.save(); refresh();
             waitState(StatusStore.OFF, 15000);
             command(SecureStore.MANUAL_ON); waitState(StatusStore.ON, 45000);
             store = new SecureStore(context);
@@ -309,7 +309,7 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
         beginLive();
         configure(findProfile(Profile.AMNEZIA), true, AppPolicy.ALL);
         SecureStore store = new SecureStore(context);
-        store.homeSsid = "autoturn-test-away"; store.save();
+        store.homeSsids.clear(); store.homeSsids.add("autoturn-test-away"); store.save();
         for (int cycle = 1; cycle <= 2; cycle++) {
             store = new SecureStore(context); store.setControlMode(SecureStore.MANUAL_OFF);
             store.manualUntil = System.currentTimeMillis() + 2500; store.save("manualUntil"); refresh();
@@ -337,7 +337,7 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
         beginLive();
         configure(findProfile(Profile.AMNEZIA), true, AppPolicy.ALL);
         SecureStore store = new SecureStore(context);
-        store.homeSsid = "autoturn-test-away"; store.save();
+        store.homeSsids.clear(); store.homeSsids.add("autoturn-test-away"); store.save();
         store.setControlMode(SecureStore.MANUAL_OFF);
         store.manualUntil = System.currentTimeMillis() + 8000; store.save("manualUntil"); refresh();
         waitState(StatusStore.OFF, 5000);
