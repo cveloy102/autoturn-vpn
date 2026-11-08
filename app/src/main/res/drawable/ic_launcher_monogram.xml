@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <!-- Adaptive foreground includes the platform's extra perimeter; preserve the approved size. -->
+    <group android:pivotX="512" android:pivotY="512" android:scaleX="0.666667" android:scaleY="0.666667">
+        <path android:fillColor="#FFE8E4D9"
+            android:pathData="M252,756 L432,260 L592,260 L772,756 L634,756 L512,390 L390,756 Z" />
+        <path android:fillColor="#FFF0443E"
+            android:pathData="M394,564 L630,564 L630,650 L394,650 Z" />
+    </group>
+</vector>

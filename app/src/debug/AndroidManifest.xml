@@ -1,0 +1,11 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver android:name=".DebugControlReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="app.autoturn.vpn.DEBUG_DISABLE" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
