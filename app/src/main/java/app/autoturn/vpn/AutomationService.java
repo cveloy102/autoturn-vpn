@@ -537,11 +537,15 @@ public final class AutomationService extends Service {
         healthScheduled = false;
         verified = false;
         observedVpn = null;
+        boolean protectedStopSent = false;
         try {
             if (runningProtected) {
                 if (keepProtection) startService(new Intent(this, ProtectedVpnService.class)
                         .setAction(ProtectedVpnService.ACTION_HOLD));
-                else stopService(new Intent(this, ProtectedVpnService.class));
+                else {
+                    stopProtectedOwner(true);
+                    protectedStopSent = true;
+                }
                 if (!keepProtection) runningProtected = false;
             } else if (Profile.AMNEZIA.equals(runningType) && backend != null)
                 backend.setState(tunnel, Tunnel.State.DOWN, null);
@@ -556,7 +560,26 @@ public final class AutomationService extends Service {
         runningType = "";
         runningPolicy = "";
         // Also release an orphan owner after AutomationService was recreated in another process.
-        if (!keepProtection) stopService(new Intent(this, ProtectedVpnService.class));
+        if (!keepProtection && !protectedStopSent) {
+            try { stopProtectedOwner(false); }
+            catch (Exception ignored) { StatusStore.set(this, StatusStore.ERROR, "Не удалось остановить защиту"); }
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void stopProtectedOwner(boolean knownRunning) {
+        if (!knownRunning) {
+            // Android still exposes our own services. Do not create a protected process
+            // or notification during ordinary legacy-mode decisions when none exists.
+            android.app.ActivityManager manager = getSystemService(android.app.ActivityManager.class);
+            boolean found = false;
+            if (manager != null) for (android.app.ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE))
+                if (ProtectedVpnService.class.getName().equals(service.service.getClassName())) { found = true; break; }
+            if (!found) return;
+        }
+        // Android binds to an established VpnService. stopService() alone need not
+        // destroy a bound service, so the owner must explicitly close its master TUN.
+        startService(new Intent(this, ProtectedVpnService.class).setAction(ProtectedVpnService.ACTION_STOP));
     }
 
     private Notification notification(String text) {

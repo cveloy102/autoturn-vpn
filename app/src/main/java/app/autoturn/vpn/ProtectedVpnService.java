@@ -351,8 +351,10 @@ public final class ProtectedVpnService extends VpnService {
         if (owner != this) return;
         stopEngine();
         if (tunnel != null) { try { tunnel.close(); } catch (Exception ignored) { } tunnel = null; }
-        if (awg != null) { awg.close(); awg = null; }
+        ProtectedAwgClient previousAwg = awg;
+        awg = null;
         tunnelSpec = ""; owner = null;
+        if (previousAwg != null) previousAwg.close();
     }
 
     private void blocked(String detail) {

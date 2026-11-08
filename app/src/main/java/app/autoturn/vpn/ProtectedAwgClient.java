@@ -23,7 +23,11 @@ final class ProtectedAwgClient implements AutoCloseable {
         @Override public void onServiceDisconnected(ComponentName name) { engine = null; }
         @Override public void onNullBinding(ComponentName name) { ready.countDown(); }
     };
-    ProtectedAwgClient(Context context) { this.context = context; }
+    ProtectedAwgClient(Context context) {
+        // Service-context bindings are automatically forgotten by Android during
+        // onDestroy(), before the owner's queued native cleanup necessarily runs.
+        this.context = context.getApplicationContext();
+    }
     void start(ParcelFileDescriptor master, String config) throws Exception {
         if (!bound) bound = context.bindService(new Intent(context, ProtectedAwgService.class),
                 connection, Context.BIND_AUTO_CREATE);
@@ -39,7 +43,11 @@ final class ProtectedAwgClient implements AutoCloseable {
     }
     @Override public void close() {
         stop();
-        if (bound) { context.unbindService(connection); bound = false; }
+        if (bound) {
+            bound = false;
+            try { context.unbindService(connection); }
+            catch (IllegalArgumentException alreadyReleased) { /* Idempotent lifecycle cleanup. */ }
+        }
         engine = null;
     }
 }

@@ -28,6 +28,9 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
         java.nio.file.Files.write(new java.io.File(context.getFilesDir(), "reliability-baseline.enc").toPath(), original);
         assertNull("VPN permission required before live checks", android.net.VpnService.prepare(context));
         live = true;
+        // This suite audits the legacy behavior even when the user's baseline is protected.
+        SecureStore legacy = new SecureStore(context);
+        legacy.protectedMode = false; legacy.save("protectedMode");
         command(SecureStore.MANUAL_OFF);
         waitState(StatusStore.OFF, 15000);
     }
