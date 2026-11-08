@@ -17,6 +17,7 @@ final class StatusStore {
     static final String CONNECTING = "connecting";
     static final String ON = "on";
     static final String ERROR = "error";
+    static final String BLOCKED = "blocked";
     private static final String FILE = "runtime.json";
 
     private StatusStore() {}

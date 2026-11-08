@@ -15,6 +15,30 @@ public final class RoutingProbeActivity extends android.app.Activity {
                 android.net.Network active = cm.getActiveNetwork();
                 android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(active);
                 result.put("vpn", caps != null && caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN));
+                if (getIntent().getBooleanExtra("udpDns", false)) {
+                    // A fresh wire query checks UDP independently, even when the subsequent HTTPS fails.
+                    try (java.net.DatagramSocket dns = new java.net.DatagramSocket()) {
+                        dns.setSoTimeout(3000);
+                        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                        java.io.DataOutputStream wire = new java.io.DataOutputStream(bytes);
+                        int id = new java.security.SecureRandom().nextInt(65536);
+                        wire.writeShort(id); wire.writeShort(0x0100); wire.writeShort(1);
+                        wire.writeShort(0); wire.writeShort(0); wire.writeShort(0);
+                        for (String label : ("audit-" + java.util.UUID.randomUUID().toString().replace("-", "") +
+                                ".example.com").split("\\.")) {
+                            wire.writeByte(label.length()); wire.writeBytes(label);
+                        }
+                        wire.writeByte(0); wire.writeShort(1); wire.writeShort(1);
+                        byte[] packet = bytes.toByteArray();
+                        dns.connect(java.net.InetAddress.getByAddress(new byte[] {1,1,1,1}), 53);
+                        dns.send(new java.net.DatagramPacket(packet, packet.length));
+                        java.net.DatagramPacket reply = new java.net.DatagramPacket(new byte[2048], 2048);
+                        dns.receive(reply);
+                        byte[] body = reply.getData();
+                        result.put("dnsPacketReply", reply.getLength() >= 12 && (body[2] & 0x80) != 0 &&
+                                (((body[0] & 255) << 8) | (body[1] & 255)) == id);
+                    } catch (Exception e) { result.put("dnsPacketReply", false); }
+                }
                 java.net.HttpURLConnection connection = (java.net.HttpURLConnection)
                         new java.net.URL("https://example.com/").openConnection();
                 try {

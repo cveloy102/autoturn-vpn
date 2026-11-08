@@ -103,7 +103,10 @@ public final class QwdttCaptchaActivity extends Activity {
         if (completed || !valid() || token == null || token.isEmpty() || token.length() > 16384 ||
                 token.contains("\n") || token.contains("\r")) return;
         completed = true;
-        startService(new Intent(this, XrayVpnService.class).setAction(XrayVpnService.ACTION_CAPTCHA)
+        Class<?> service = XrayVpnService.class;
+        try { if (new SecureStore(this).protectedMode) service = ProtectedVpnService.class; }
+        catch (Exception ignored) { return; }
+        startService(new Intent(this, service).setAction(XrayVpnService.ACTION_CAPTCHA)
                 .putExtra("session", session).putExtra("request", request).putExtra("token", token));
     }
 

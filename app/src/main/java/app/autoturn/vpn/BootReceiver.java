@@ -12,7 +12,7 @@ public final class BootReceiver extends BroadcastReceiver {
             SecureStore.expireManualMode(context, System.currentTimeMillis());
             AutoReturnReceiver.sync(context);
             SecureStore store = new SecureStore(context);
-            if (store.automation || SecureStore.MANUAL_ON.equals(store.manualMode))
+            if (store.protectedMode || store.automation || SecureStore.MANUAL_ON.equals(store.manualMode))
                 context.startForegroundService(new Intent(context, AutomationService.class));
         } catch (Exception ignored) {
             StatusStore.set(context, StatusStore.ERROR, "Откройте AutoTurn после перезагрузки");

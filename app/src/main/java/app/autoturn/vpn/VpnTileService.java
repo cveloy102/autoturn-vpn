@@ -80,7 +80,7 @@ public final class VpnTileService extends TileService {
         if (SecureStore.MANUAL_OFF.equals(mode)) return SecureStore.MANUAL_ON;
         if (SecureStore.MANUAL_ON.equals(mode))
             return SecureStore.MANUAL_OFF;
-        return StatusStore.ON.equals(state) || StatusStore.CONNECTING.equals(state) ?
+        return StatusStore.ON.equals(state) || StatusStore.CONNECTING.equals(state) || StatusStore.BLOCKED.equals(state) ?
                 SecureStore.MANUAL_OFF : SecureStore.MANUAL_ON;
     }
 
@@ -121,10 +121,11 @@ public final class VpnTileService extends TileService {
         // HyperOS hides the subtitle on small tiles. Keep the connection in the visible label.
         tile.setLabel("AutoTurn\n" + connection);
         boolean active = !SecureStore.MANUAL_OFF.equals(manualMode) &&
-                (StatusStore.ON.equals(state) || StatusStore.CONNECTING.equals(state));
+                (StatusStore.ON.equals(state) || StatusStore.CONNECTING.equals(state) || StatusStore.BLOCKED.equals(state));
         if (pendingOn != null) active = pendingOn;
         tile.setState(active ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
         String description = pendingOn != null ? mode + (pendingOn ? " · подключается" : " · выключается") :
+                StatusStore.BLOCKED.equals(state) ? "Трафик заблокирован · защита активна" :
                 StatusStore.ERROR.equals(state) ? mode + " · ошибка" :
                 StatusStore.CONNECTING.equals(state) ? mode + " · подключается" :
                 StatusStore.ON.equals(state) ? mode + " · VPN включён" :

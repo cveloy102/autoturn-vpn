@@ -28,6 +28,40 @@ public final class ModelValidationTest extends InstrumentationTestCase {
         super.tearDown();
     }
 
+    public void testProtectedModeIsOptInAndMergesWithConcurrentUiSave() throws Exception {
+        SecureStore initial = new SecureStore(fixture);
+        assertFalse("Existing/default settings keep the legacy engine", initial.protectedMode);
+        SecureStore staleUi = new SecureStore(fixture);
+        initial.protectedMode = true;
+        initial.save("protectedMode");
+        staleUi.theme = SecureStore.THEME_LIGHT;
+        staleUi.save();
+        SecureStore read = new SecureStore(fixture);
+        assertTrue("A stale settings screen cannot silently remove protection", read.protectedMode);
+        assertEquals(SecureStore.THEME_LIGHT, read.theme);
+        read.setControlMode(SecureStore.MANUAL_OFF);
+        assertTrue("Manual OFF pauses the transport, not protection", new SecureStore(fixture).protectedMode);
+        read = new SecureStore(fixture);
+        read.protectedMode = false;
+        read.save("protectedMode");
+        assertFalse(new SecureStore(fixture).protectedMode);
+    }
+
+    public void testProtectedAppListsRetainBothRoutingModes() throws Exception {
+        SecureStore store = new SecureStore(fixture);
+        store.protectedMode = true;
+        store.save("protectedMode");
+        Set<String> only = new LinkedHashSet<>(), excluded = new LinkedHashSet<>();
+        only.add("fixture.protected"); excluded.add("fixture.direct");
+        store.setAppPolicy(AppPolicy.ONLY, only, excluded);
+        SecureStore read = new SecureStore(fixture);
+        assertTrue(read.protectedMode); assertEquals(only, read.selectedPackages);
+        read.setAppPolicy(AppPolicy.EXCLUDE, only, excluded);
+        read = new SecureStore(fixture);
+        assertTrue(read.protectedMode); assertEquals(excluded, read.selectedPackages);
+        assertEquals(only, read.onlyPackages); assertEquals(excluded, read.excludedPackages);
+    }
+
     public void testPrimaryOrderSurvivesFailoverAndNewSelection() throws Exception {
         SecureStore store = new SecureStore(fixture);
         Profile first = new Profile("First", Profile.AMNEZIA, "fixture");

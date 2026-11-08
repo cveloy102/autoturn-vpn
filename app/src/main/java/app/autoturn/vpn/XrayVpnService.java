@@ -66,7 +66,7 @@ public final class XrayVpnService extends VpnService {
     private boolean currentRequest(String id, long commandGeneration) throws Exception {
         if (commandGeneration != requestedGeneration) return false;
         SecureStore store = new SecureStore(this);
-        return id != null && id.equals(store.activeId) &&
+        return !store.protectedMode && id != null && id.equals(store.activeId) &&
                 !SecureStore.MANUAL_OFF.equals(store.manualMode) &&
                 (store.automation || SecureStore.MANUAL_ON.equals(store.manualMode));
     }
@@ -170,7 +170,7 @@ public final class XrayVpnService extends VpnService {
         }
     }
 
-    private JSONArray outbounds(String source, String type) throws Exception {
+    static JSONArray outbounds(String source, String type) throws Exception {
         if (Profile.HYSTERIA2.equals(type) &&
                 (source.startsWith("hysteria2://") || source.startsWith("hy2://")))
             return new JSONArray().put(Hysteria2Config.outbound(source));
@@ -196,7 +196,7 @@ public final class XrayVpnService extends VpnService {
         throw new IllegalArgumentException("No supported outbound for " + type);
     }
 
-    private JSONObject invoke(String method, JSONObject payload) throws Exception {
+    static JSONObject invoke(String method, JSONObject payload) throws Exception {
         JSONObject request = new JSONObject().put("apiVersion", 3).put("method", method);
         if (payload != null) request.put("payload", payload);
         JSONObject response = new JSONObject(LibXray.invoke(request.toString()));

@@ -44,6 +44,7 @@ final class SecureStore {
     boolean automation = true;
     boolean keepAtHome = false;
     boolean connectionGuard = true;
+    boolean protectedMode = false;
     String theme = THEME_DARK;
     String manualMode = MANUAL_AUTO;
     int autoReturnHours = 2;
@@ -326,6 +327,7 @@ final class SecureStore {
         json.put("automation", automation);
         json.put("keepAtHome", keepAtHome);
         json.put("connectionGuard", connectionGuard);
+        json.put("protectedMode", protectedMode);
         json.put("theme", theme);
         json.put("manualMode", manualMode);
         json.put("controlSchema", 1);
@@ -487,6 +489,7 @@ final class SecureStore {
         automation = json.optBoolean("automation", false);
         keepAtHome = json.optBoolean("keepAtHome", false);
         connectionGuard = json.optBoolean("connectionGuard", true);
+        protectedMode = json.optBoolean("protectedMode", false);
         theme = normalizeTheme(json.optString("theme", THEME_DARK));
         manualMode = json.optString("manualMode", MANUAL_AUTO);
         if (!MANUAL_ON.equals(manualMode) && !MANUAL_OFF.equals(manualMode)) manualMode = MANUAL_AUTO;

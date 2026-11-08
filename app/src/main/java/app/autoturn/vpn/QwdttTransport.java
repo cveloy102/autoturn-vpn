@@ -51,12 +51,17 @@ final class QwdttTransport implements AutoCloseable {
                     .put("user", "autoturn").put("password", password).put("phase", "starting");
             QwdttState.write(context, state);
         }
-        ProcessBuilder builder = new ProcessBuilder(binary.getAbsolutePath(),
+        java.util.List<String> arguments = new java.util.ArrayList<>(java.util.Arrays.asList(binary.getAbsolutePath(),
                 "-peer", config.peer, "-listen", "127.0.0.1:" + config.port,
                 "-n", String.valueOf(config.workers), "-device-id", deviceId(),
                 "-vk-auth", "anonymous", "-vk-anon-path", "vkcalls", "-captcha-mode", "wv",
                 "-mode", "socks", "-socks", "127.0.0.1:" + socksPort,
-                "-socks-auth", "-socks-user", "autoturn");
+                "-socks-auth", "-socks-user", "autoturn"));
+        if (context instanceof ProtectedVpnService) {
+            // Only bootstrap VK/TURN names here. User DNS stays inside Xray's VPN path.
+            arguments.add("-go-dns"); arguments.add("doh:https://1.1.1.1/dns-query");
+        }
+        ProcessBuilder builder = new ProcessBuilder(arguments);
         builder.environment().put("AUTOTURN_PASSWORD", config.password);
         builder.environment().put("AUTOTURN_VK_HASHES", config.hashes);
         builder.environment().put("AUTOTURN_SOCKS_PASSWORD", password);
