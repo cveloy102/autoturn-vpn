@@ -8,6 +8,10 @@ public final class RoutingProbeActivity extends android.app.Activity {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
         }
+        if (getIntent().getBooleanExtra("barrierWatch", false)) {
+            new Thread(this::watchBarrier, "barrier-watch").start();
+            return;
+        }
         new Thread(() -> {
             org.json.JSONObject result = new org.json.JSONObject();
             try {
@@ -39,6 +43,21 @@ public final class RoutingProbeActivity extends android.app.Activity {
                                 (((body[0] & 255) << 8) | (body[1] & 255)) == id);
                     } catch (Exception e) { result.put("dnsPacketReply", false); }
                 }
+                if (getIntent().getBooleanExtra("blocked", false)) {
+                    result.put("tlsExternal", false);
+                    try (java.net.Socket socket = new java.net.Socket()) {
+                        socket.connect(new java.net.InetSocketAddress(java.net.InetAddress.getByAddress(
+                                new byte[] {1,1,1,1}), 443), 3500);
+                        socket.setSoTimeout(3500);
+                        javax.net.ssl.SSLSocketFactory factory = (javax.net.ssl.SSLSocketFactory) javax.net.ssl.SSLSocketFactory.getDefault();
+                        try (javax.net.ssl.SSLSocket tls = (javax.net.ssl.SSLSocket) factory.createSocket(socket, "one.one.one.one", 443, false)) {
+                            tls.setSoTimeout(3500);
+                            javax.net.ssl.SSLParameters parameters = tls.getSSLParameters();
+                            parameters.setEndpointIdentificationAlgorithm("HTTPS"); tls.setSSLParameters(parameters);
+                            tls.startHandshake(); result.put("tlsExternal", true);
+                        }
+                    }
+                } else {
                 java.net.HttpURLConnection connection = (java.net.HttpURLConnection)
                         new java.net.URL("https://example.com/").openConnection();
                 try {
@@ -92,6 +111,7 @@ public final class RoutingProbeActivity extends android.app.Activity {
                         result.put("udp", matched);
                     }
                 }
+                }
             } catch (Exception e) {
                 try { result.put("error", e.getClass().getSimpleName()); } catch (Exception ignored) { }
             }
@@ -101,5 +121,72 @@ public final class RoutingProbeActivity extends android.app.Activity {
             } catch (Exception ignored) { }
             runOnUiThread(this::finish);
         }, "routing-probe").start();
+    }
+
+    private void watchBarrier() {
+        int attempts = 0, connected = 0, dnsReplies = 0, dnsErrors = 0, ipv6 = 0;
+        long until = android.os.SystemClock.elapsedRealtime() +
+                Math.max(1000, Math.min(60000, getIntent().getIntExtra("watchMillis", 45000)));
+        while (android.os.SystemClock.elapsedRealtime() < until) {
+            attempts++;
+            try (java.net.Socket socket = new java.net.Socket()) {
+                socket.connect(new java.net.InetSocketAddress(java.net.InetAddress.getByAddress(
+                        new byte[] {1,1,1,1}), 443), 350);
+                socket.setSoTimeout(350);
+                javax.net.ssl.SSLSocketFactory factory = (javax.net.ssl.SSLSocketFactory) javax.net.ssl.SSLSocketFactory.getDefault();
+                try (javax.net.ssl.SSLSocket tls = (javax.net.ssl.SSLSocket) factory.createSocket(socket, "one.one.one.one", 443, false)) {
+                    tls.setSoTimeout(350);
+                    javax.net.ssl.SSLParameters parameters = tls.getSSLParameters();
+                    parameters.setEndpointIdentificationAlgorithm("HTTPS"); tls.setSSLParameters(parameters);
+                    // gVisor may accept TCP locally even when the outbound is down.
+                    // Only a verified external TLS handshake proves traffic escaped.
+                    tls.startHandshake(); connected++;
+                }
+            } catch (Exception ignored) { }
+            try (java.net.DatagramSocket socket = new java.net.DatagramSocket()) {
+                socket.setSoTimeout(150);
+                java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                java.io.DataOutputStream wire = new java.io.DataOutputStream(bytes);
+                int id = attempts & 65535;
+                wire.writeShort(id); wire.writeShort(0x0100); wire.writeShort(1);
+                wire.writeShort(0); wire.writeShort(0); wire.writeShort(0);
+                for (String label : ("a" + java.util.UUID.randomUUID().toString().replace("-", "") +
+                        ".example.com").split("\\.")) {
+                    wire.writeByte(label.length()); wire.writeBytes(label);
+                }
+                wire.writeByte(0); wire.writeShort(1); wire.writeShort(1);
+                byte[] query = bytes.toByteArray();
+                socket.connect(java.net.InetAddress.getByAddress(new byte[] {1,1,1,1}), 53);
+                socket.send(new java.net.DatagramPacket(query, query.length));
+                java.net.DatagramPacket answer = new java.net.DatagramPacket(new byte[2048], 2048);
+                socket.receive(answer);
+                byte[] body = answer.getData();
+                if (answer.getLength() >= 12 && (body[2] & 0x80) != 0 &&
+                        (((body[0] & 255) << 8) | (body[1] & 255)) == id) {
+                    int rcode = body[3] & 15;
+                    if (rcode == 0 || rcode == 3) dnsReplies++;
+                    else dnsErrors++; // Local SERVFAIL/REFUSED is not an upstream DNS answer.
+                }
+            } catch (Exception ignored) { }
+            try (java.net.Socket socket = new java.net.Socket()) {
+                socket.connect(new java.net.InetSocketAddress("2606:4700:4700::1111", 443), 150);
+                ipv6++;
+            } catch (Exception ignored) { }
+            try {
+                org.json.JSONObject result = new org.json.JSONObject().put("attempts", attempts)
+                        .put("tlsConnected", connected).put("dnsReplies", dnsReplies).put("dnsErrors", dnsErrors).put("ipv6Connected", ipv6)
+                        .put("complete", android.os.SystemClock.elapsedRealtime() >= until);
+                java.nio.file.Files.write(new java.io.File(getFilesDir(), "barrier-watch.json").toPath(),
+                        result.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } catch (Exception ignored) { }
+        }
+        try {
+            org.json.JSONObject result = new org.json.JSONObject().put("attempts", attempts)
+                    .put("tlsConnected", connected).put("dnsReplies", dnsReplies).put("dnsErrors", dnsErrors).put("ipv6Connected", ipv6)
+                    .put("complete", true);
+            java.nio.file.Files.write(new java.io.File(getFilesDir(), "barrier-watch.json").toPath(),
+                    result.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception ignored) { }
+        runOnUiThread(this::finish);
     }
 }

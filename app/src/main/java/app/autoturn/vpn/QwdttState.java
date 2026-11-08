@@ -26,7 +26,8 @@ final class QwdttState {
                 byte[] name = new byte[256]; int count = processName.read(name);
                 if (count <= 0) return new JSONObject();
                 String command = new String(name, 0, count, StandardCharsets.UTF_8).split("\u0000", 2)[0];
-                if (!command.equals(context.getPackageName() + ":xray")) return new JSONObject();
+                if (!command.equals(context.getPackageName() + ":xray") &&
+                        !command.equals(context.getPackageName() + ":protected")) return new JSONObject();
             }
             return result;
         } catch (Exception ignored) { return new JSONObject(); }

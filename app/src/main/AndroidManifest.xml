@@ -57,6 +57,8 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
+        <service android:name=".ProtectedAwgService"
+            android:exported="false" android:process=":protectedAwg" />
         <service android:name=".ProtectedVpnService"
             android:exported="false"
             android:process=":protected"

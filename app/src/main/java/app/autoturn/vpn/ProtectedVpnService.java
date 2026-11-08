@@ -40,7 +40,6 @@ import java.util.concurrent.Executors;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
-import static org.amnezia.awg.GoBackend.*;
 
 /** One Android VPN owner for every protected engine. Engines never own the last TUN fd. */
 public final class ProtectedVpnService extends VpnService {
@@ -55,7 +54,7 @@ public final class ProtectedVpnService extends VpnService {
     private volatile long generation;
     private ParcelFileDescriptor tunnel, xrayFd;
     private String tunnelSpec = "";
-    private int awgHandle = -1;
+    private ProtectedAwgClient awg;
     private boolean xrayRunning;
     private volatile QwdttTransport qwdtt;
     private PowerManager.WakeLock wakeLock;
@@ -170,18 +169,9 @@ public final class ProtectedVpnService extends VpnService {
             if (config != null) {
                 Config resolved = resolveAwg(config);
                 if (!current(id, command)) { hold(command); return; }
-                // Load the existing JNI library without starting its separate legacy VpnService.
-                new org.amnezia.awg.backend.GoBackend(this);
                 drainPending();
-                int fd;
-                try (ParcelFileDescriptor duplicate = ParcelFileDescriptor.dup(tunnel.getFileDescriptor())) {
-                    fd = duplicate.detachFd(); // Ownership passes to amneziawg-go, not the master fd.
-                }
-                awgHandle = awgTurnOn("AutoTurnSecure", fd, resolved.toAwgUserspaceString());
-                if (awgHandle < 0) throw new IllegalStateException("AWG engine activation failed");
-                int v4 = awgGetSocketV4(awgHandle), v6 = awgGetSocketV6(awgHandle);
-                if ((v4 >= 0 && !protect(v4)) || (v6 >= 0 && !protect(v6)))
-                    throw new IllegalStateException("Could not protect AWG transport");
+                if (awg == null) awg = new ProtectedAwgClient(this);
+                awg.start(tunnel, resolved.toAwgUserspaceString());
             } else {
                 JSONArray outbounds;
                 if (isQwdtt(profile)) {
@@ -215,7 +205,8 @@ public final class ProtectedVpnService extends VpnService {
                 if (!current(id, command)) { hold(command); return; }
                 blocked("Трафик заблокирован · VPN не подключился");
                 // Never log credentials/configuration or fall back to the legacy engine.
-                Log.w("AutoTurnProtected", "Protected engine unavailable: " + e.getClass().getSimpleName());
+                Log.w("AutoTurnProtected", "Protected engine unavailable: " + e.getClass().getSimpleName() +
+                        "; at " + (e.getStackTrace().length == 0 ? "unknown" : e.getStackTrace()[0]));
                 startService(new Intent(this, AutomationService.class)
                         .setAction(AutomationService.ACTION_TUNNEL_FAILED)
                         .putExtra(XrayVpnService.EXTRA_PROFILE_ID, id));
@@ -306,6 +297,8 @@ public final class ProtectedVpnService extends VpnService {
         int id = new SecureRandom().nextInt(65536);
         byte[] query = BootstrapDns.query(host, id);
         try (Socket raw = new Socket()) {
+            // Socket() is lazy on Android: bind first to obtain a real fd for protect().
+            raw.bind(new InetSocketAddress(0));
             if (!protect(raw)) throw new java.io.IOException("Bootstrap protection unavailable");
             raw.connect(new InetSocketAddress(InetAddress.getByAddress(new byte[] {1, 1, 1, 1}), 853), 3500);
             raw.setSoTimeout(3500);
@@ -341,7 +334,7 @@ public final class ProtectedVpnService extends VpnService {
     }
 
     private void stopEngine() {
-        if (awgHandle >= 0) { int handle = awgHandle; awgHandle = -1; awgTurnOff(handle); }
+        if (awg != null) awg.stop();
         if (xrayRunning) {
             try { XrayVpnService.invoke("stopXray", null); } catch (Exception ignored) { }
             xrayRunning = false;
@@ -358,6 +351,7 @@ public final class ProtectedVpnService extends VpnService {
         if (owner != this) return;
         stopEngine();
         if (tunnel != null) { try { tunnel.close(); } catch (Exception ignored) { } tunnel = null; }
+        if (awg != null) { awg.close(); awg = null; }
         tunnelSpec = ""; owner = null;
     }
 
