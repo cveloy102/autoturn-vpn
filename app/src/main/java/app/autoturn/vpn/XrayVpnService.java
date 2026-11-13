@@ -26,6 +26,7 @@ public final class XrayVpnService extends VpnService {
     static final String ACTION_STOP = "app.autoturn.vpn.XRAY_STOP";
     static final String ACTION_CAPTCHA = "app.autoturn.vpn.QWDTT_CAPTCHA";
     static final String EXTRA_PROFILE_ID = "profileId";
+    static final String EXTRA_ATTEMPT_ID = "attemptId";
     private static final String CHANNEL = "xray";
     // libXray has one native core per process. Service instances must share its queue.
     private static final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -58,7 +59,8 @@ public final class XrayVpnService extends VpnService {
         if (ACTION_START.equals(intent.getAction())) {
             startForeground(101, notification("Подключаем VPN"));
             String id = intent.getStringExtra(EXTRA_PROFILE_ID);
-            worker.execute(() -> startTunnel(id, commandGeneration));
+            String attemptId = intent.getStringExtra(EXTRA_ATTEMPT_ID);
+            worker.execute(() -> startTunnel(id, commandGeneration, attemptId));
         }
         return START_NOT_STICKY;
     }
@@ -66,12 +68,13 @@ public final class XrayVpnService extends VpnService {
     private boolean currentRequest(String id, long commandGeneration) throws Exception {
         if (commandGeneration != requestedGeneration) return false;
         SecureStore store = new SecureStore(this);
-        return id != null && id.equals(store.activeId) &&
+        return !store.protectedMode && id != null && id.equals(store.activeId) &&
+                store.activeProfile() != null && store.activeProfile().enabled &&
                 !SecureStore.MANUAL_OFF.equals(store.manualMode) &&
                 (store.automation || SecureStore.MANUAL_ON.equals(store.manualMode));
     }
 
-    private void startTunnel(String id, long commandGeneration) {
+    private void startTunnel(String id, long commandGeneration, String attemptId) {
         String protocolName = "VPN";
         try {
             if (!currentRequest(id, commandGeneration)) return;
@@ -90,12 +93,18 @@ public final class XrayVpnService extends VpnService {
             JSONArray outbounds;
             if (isQwdtt) {
                 acquireWakeLock();
-                qwdtt = new QwdttTransport(this);
+                qwdtt = new QwdttTransport(this, attemptId);
                 outbounds = qwdtt.start(profile, () -> {
                     try { return currentRequest(id, commandGeneration); }
                     catch (Exception ignored) { return false; }
                 });
-            } else outbounds = outbounds(profile.config, profile.type);
+            } else {
+                outbounds = outbounds(profile.config, profile.type);
+                new EndpointResolver(this,()->{
+                    try{return currentRequest(id,commandGeneration);}catch(Exception e){return false;}
+                },false).resolveXray(outbounds.getJSONObject(0));
+            }
+            if(!currentRequest(id,commandGeneration))return;
             Set<String> routedApps = AppPolicy.routed(this, store);
             // These profiles use an IPv4-only server. Do not advertise a synthetic IPv6
             // address: cached AAAA/DoH results otherwise send apps into an unreachable path.
@@ -166,11 +175,11 @@ public final class XrayVpnService extends VpnService {
             getSystemService(NotificationManager.class).notify(101, notification("Ошибка " + protocolName));
             startService(new Intent(this, AutomationService.class)
                     .setAction(AutomationService.ACTION_TUNNEL_FAILED)
-                    .putExtra(EXTRA_PROFILE_ID, id));
+                    .putExtra(EXTRA_PROFILE_ID, id).putExtra(EXTRA_ATTEMPT_ID, attemptId));
         }
     }
 
-    private JSONArray outbounds(String source, String type) throws Exception {
+    static JSONArray outbounds(String source, String type) throws Exception {
         if (Profile.HYSTERIA2.equals(type) &&
                 (source.startsWith("hysteria2://") || source.startsWith("hy2://")))
             return new JSONArray().put(Hysteria2Config.outbound(source));
@@ -196,7 +205,7 @@ public final class XrayVpnService extends VpnService {
         throw new IllegalArgumentException("No supported outbound for " + type);
     }
 
-    private JSONObject invoke(String method, JSONObject payload) throws Exception {
+    static JSONObject invoke(String method, JSONObject payload) throws Exception {
         JSONObject request = new JSONObject().put("apiVersion", 3).put("method", method);
         if (payload != null) request.put("payload", payload);
         JSONObject response = new JSONObject(LibXray.invoke(request.toString()));

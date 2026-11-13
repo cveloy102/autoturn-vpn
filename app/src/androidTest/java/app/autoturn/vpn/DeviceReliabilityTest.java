@@ -28,6 +28,9 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
         java.nio.file.Files.write(new java.io.File(context.getFilesDir(), "reliability-baseline.enc").toPath(), original);
         assertNull("VPN permission required before live checks", android.net.VpnService.prepare(context));
         live = true;
+        // This suite audits the legacy behavior even when the user's baseline is protected.
+        SecureStore legacy = new SecureStore(context);
+        legacy.protectedMode = false; legacy.save("protectedMode");
         command(SecureStore.MANUAL_OFF);
         waitState(StatusStore.OFF, 15000);
     }
@@ -57,6 +60,17 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
     }
 
     private Profile findProfile(String type) throws Exception {
+        if (Profile.VLESS.equals(type)) {
+            // These scenarios need a valid but unreachable engine, independent of user profiles.
+            String publicKey = new org.amnezia.awg.crypto.KeyPair().getPublicKey().toBase64()
+                    .replace('+', '-').replace('/', '_').replace("=", "");
+            Profile offline = ProfileImporter.parse("Offline VLESS fixture",
+                    "vless://12345678-1234-1234-1234-123456789abc@127.0.0.1:9"
+                            + "?security=reality&type=tcp&sni=example.com&fp=chrome&pbk=" + publicKey);
+            SecureStore store = new SecureStore(context);
+            store.profiles.add(offline); store.save();
+            return offline;
+        }
         for (Profile profile : baseline.profiles) if (type.equals(profile.type)) return profile;
         fail("Required profile type missing: " + type);
         return null;
@@ -131,6 +145,41 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
             report("PASS primary cycle " + cycle + ": primary first, verified backup, primary and order preserved");
             command(SecureStore.MANUAL_OFF); waitState(StatusStore.OFF, 5000);
         }
+    }
+
+    private String vpnNetwork() {
+        android.net.ConnectivityManager cm=context.getSystemService(android.net.ConnectivityManager.class);
+        for(android.net.Network network:cm.getAllNetworks()) {
+            android.net.NetworkCapabilities caps=cm.getNetworkCapabilities(network);
+            if(caps!=null && caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN))return network.toString();
+        }
+        return "";
+    }
+
+    public void testOpeningAppRetainsWorkingTunnel() throws Exception {
+        beginLive();Profile profile=baseline.activeProfile();assertNotNull(profile);
+        assertFalse("Scenario uses the ordinary network probe",Profile.QWDTT.equals(profile.type));
+        Profile enabled=new Profile(profile.id,profile.name,profile.type,profile.config,false,true);
+        SecureStore s=new SecureStore(context);s.profiles.clear();s.profiles.add(enabled);s.save();
+        configure(enabled,true,AppPolicy.ALL);command(SecureStore.MANUAL_ON);
+        waitState(StatusStore.ON,60000);verifyTraffic();String network=vpnNetwork();assertFalse(network.isEmpty());
+        java.lang.reflect.Method request=ConnectionProbe.class.getDeclaredMethod("canReach",android.net.Network.class,String.class,int.class);
+        request.setAccessible(true);
+        android.net.ConnectivityManager cm=context.getSystemService(android.net.ConnectivityManager.class);
+        for(android.net.Network n:cm.getAllNetworks())if(network.equals(n.toString()))
+            assertEquals("DNS-independent confirmation validates HTTPS through the VPN",Boolean.TRUE,
+                    request.invoke(null,n,"https://1.1.1.1/cdn-cgi/trace",8000));
+        for(int cycle=0;cycle<3;cycle++) {
+            MainActivity activity=(MainActivity)getInstrumentation().startActivitySync(new android.content.Intent(context,MainActivity.class)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+            try {
+                Thread.sleep(6500);verifyTraffic();
+                assertEquals("Opening app retains the selected connection",profile.id,new SecureStore(context).activeId);
+                assertEquals("Opening app does not recreate the VPN",network,vpnNetwork());
+                assertEquals(StatusStore.ON,StatusStore.state(context));
+            } finally {getInstrumentation().runOnMainSync(activity::finish);}
+        }
+        report("PASS three real app openings: same profile, same Android VPN network, verified HTTPS");
     }
 
     public void testAmneziaRepeatedRealTraffic() throws Exception {
@@ -454,6 +503,23 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
                 long end = android.os.SystemClock.elapsedRealtime() + 20000;
                 while (android.os.SystemClock.elapsedRealtime() < end &&
                         !StatusStore.detail(context).contains("Нет сети")) Thread.sleep(150);
+                if (!StatusStore.detail(context).contains("Нет сети")) {
+                    android.net.ConnectivityManager manager = context.getSystemService(android.net.ConnectivityManager.class);
+                    StringBuilder networks = new StringBuilder();
+                    for (android.net.Network network : manager.getAllNetworks()) {
+                        android.net.NetworkCapabilities caps = manager.getNetworkCapabilities(network);
+                        if (caps == null) continue;
+                        networks.append(" [wifi=").append(caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI))
+                                .append(",cell=").append(caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR))
+                                .append(",vpn=").append(caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN))
+                                .append(",internet=").append(caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET))
+                                .append(",validated=").append(caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED))
+                                .append(']');
+                    }
+                    report("OFFLINE DIAGNOSTIC: state=" + StatusStore.state(context) + "; detail=" + StatusStore.detail(context)
+                            + "; wifi_on=" + shell("settings get global wifi_on").trim()
+                            + "; mobile_data=" + shell("settings get global mobile_data").trim() + "; networks=" + networks);
+                }
                 assertTrue("Missing underlying network must be reported", StatusStore.detail(context).contains("Нет сети"));
                 assertEquals("Offline must not burn through profiles", activeId, new SecureStore(context).activeId);
                 if (data) shell("svc data enable");

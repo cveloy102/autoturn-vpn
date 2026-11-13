@@ -8,8 +8,8 @@ android {
         applicationId 'app.autoturn.vpn'
         minSdk 29
         targetSdk 36
-        versionCode 29
-        versionName '1.5.0'
+        versionCode 31
+        versionName '1.7.0'
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
 
@@ -18,7 +18,7 @@ android {
         signingConfigs.debug.storeFile = file('../.android/debug.keystore')
     }
 
-    buildFeatures { buildConfig true }
+    buildFeatures { buildConfig true; aidl true }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

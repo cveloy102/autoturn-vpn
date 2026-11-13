@@ -44,6 +44,7 @@ final class SecureStore {
     boolean automation = true;
     boolean keepAtHome = false;
     boolean connectionGuard = true;
+    boolean protectedMode = false;
     String theme = THEME_DARK;
     String manualMode = MANUAL_AUTO;
     int autoReturnHours = 2;
@@ -83,6 +84,32 @@ final class SecureStore {
         return ordered;
     }
 
+    synchronized List<Profile> connectionProfiles() {
+        List<Profile> result = new ArrayList<>();
+        for (Profile profile : orderedProfiles()) if (profile.enabled) result.add(profile);
+        return result;
+    }
+
+    synchronized Profile firstConnectionProfile() {
+        for (Profile profile : orderedProfiles()) if (profile.enabled) return profile;
+        return null;
+    }
+
+    synchronized void setProfileEnabled(String id, boolean enabled) throws Exception {
+        synchronized (WRITE_LOCK) {
+            SecureStore latest = new SecureStore(context);
+            boolean found = false;
+            for (int i = 0; i < latest.profiles.size(); i++) {
+                Profile p = latest.profiles.get(i);
+                if (!p.id.equals(id)) continue;
+                latest.profiles.set(i, new Profile(p.id, p.name, p.type, p.config, p.lastResort, enabled));
+                found = true; break;
+            }
+            if (!found) throw new IllegalArgumentException("Профиль не найден");
+            latest.save(); load(); originalState = encodeSettings();
+        }
+    }
+
     synchronized void selectPrimary(String id) throws Exception {
         synchronized (WRITE_LOCK) {
             SecureStore latest = new SecureStore(context);
@@ -93,11 +120,11 @@ final class SecureStore {
             Profile previous = latest.primaryProfile();
             if (previous != null) {
                 latest.profiles.remove(previous);
-                latest.profiles.add(0, new Profile(previous.id, previous.name, previous.type, previous.config, false));
+                latest.profiles.add(0, new Profile(previous.id, previous.name, previous.type, previous.config, false, previous.enabled));
             }
             for (int i = 0; i < latest.profiles.size(); i++) {
                 Profile p = latest.profiles.get(i);
-                if (p.id.equals(id)) latest.profiles.set(i, new Profile(p.id, p.name, p.type, p.config, false));
+                if (p.id.equals(id)) latest.profiles.set(i, new Profile(p.id, p.name, p.type, p.config, false, p.enabled));
             }
             latest.primaryId = id; latest.activeId = id;
             latest.save("primaryId", "activeId");
@@ -157,7 +184,7 @@ final class SecureStore {
             SecureStore latest = new SecureStore(context);
             if (!latest.primaryId.equals(expectedPrimary) || !latest.activeId.equals(expectedActive)) return false;
             boolean exists = false;
-            for (Profile profile : latest.profiles) if (profile.id.equals(nextId)) exists = true;
+            for (Profile profile : latest.profiles) if (profile.id.equals(nextId) && profile.enabled) exists = true;
             if (!exists) return false;
             latest.activeId = nextId;
             latest.save("activeId");
@@ -219,7 +246,7 @@ final class SecureStore {
         for (int i = 0; i < profiles.size(); i++) {
             Profile old = profiles.get(i);
             if (!old.id.equals(id)) continue;
-            profiles.set(i, new Profile(old.id, name, old.type, old.config, old.lastResort));
+            profiles.set(i, new Profile(old.id, name, old.type, old.config, old.lastResort, old.enabled));
             try { save(); }
             catch (Exception e) { profiles.set(i, old); throw e; }
             return;
@@ -237,7 +264,7 @@ final class SecureStore {
             if (found.lastResort == enabled) { load(); originalState = encodeSettings(); return; }
             // Append to the destination group; preserve every other profile's rank.
             latest.profiles.remove(found);
-            latest.profiles.add(new Profile(found.id, found.name, found.type, found.config, enabled));
+            latest.profiles.add(new Profile(found.id, found.name, found.type, found.config, enabled, found.enabled));
             latest.save(); load(); originalState = encodeSettings();
         }
     }
@@ -326,6 +353,7 @@ final class SecureStore {
         json.put("automation", automation);
         json.put("keepAtHome", keepAtHome);
         json.put("connectionGuard", connectionGuard);
+        json.put("protectedMode", protectedMode);
         json.put("theme", theme);
         json.put("manualMode", manualMode);
         json.put("controlSchema", 1);
@@ -425,7 +453,17 @@ final class SecureStore {
             JSONObject old = before.get(id), edited = after.get(id);
             if (old == null || !old.toString().equals(edited.toString())) {
                 // A rename from an old screen must not resurrect a deleted profile.
-                if (old == null || merged.containsKey(id)) merged.put(id, edited);
+                if (old == null) merged.put(id, edited);
+                else if (merged.containsKey(id)) {
+                    JSONObject combined = new JSONObject(merged.get(id).toString());
+                    java.util.Iterator<String> fields = edited.keys();
+                    while (fields.hasNext()) {
+                        String field = fields.next();
+                        if (!String.valueOf(old.opt(field)).equals(String.valueOf(edited.opt(field))))
+                            combined.put(field, edited.get(field));
+                    }
+                    merged.put(id, combined);
+                }
             }
         }
         List<String> originalOrder = new ArrayList<>(), desiredOrder = new ArrayList<>();
@@ -487,6 +525,7 @@ final class SecureStore {
         automation = json.optBoolean("automation", false);
         keepAtHome = json.optBoolean("keepAtHome", false);
         connectionGuard = json.optBoolean("connectionGuard", true);
+        protectedMode = json.optBoolean("protectedMode", false);
         theme = normalizeTheme(json.optString("theme", THEME_DARK));
         manualMode = json.optString("manualMode", MANUAL_AUTO);
         if (!MANUAL_ON.equals(manualMode) && !MANUAL_OFF.equals(manualMode)) manualMode = MANUAL_AUTO;
@@ -525,7 +564,7 @@ final class SecureStore {
         return THEME_LIGHT.equals(value) || THEME_SYSTEM.equals(value) ? value : THEME_DARK;
     }
 
-    private SecretKey key() throws Exception {
+    static SecretKey key() throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore");
         store.load(null);
         if (!store.containsAlias(KEY_ALIAS)) {

@@ -28,6 +28,103 @@ public final class ModelValidationTest extends InstrumentationTestCase {
         super.tearDown();
     }
 
+    public void testProfilePermissionMigrationAndQueue() throws Exception {
+        Profile primary = new Profile("Primary", Profile.AMNEZIA, "fixture");
+        org.json.JSONObject legacy = primary.toJson(); legacy.remove("enabled");
+        assertTrue(Profile.fromJson(legacy).enabled);
+        SecureStore store = new SecureStore(fixture);
+        Profile reserve = new Profile("Reserve", Profile.VLESS, "fixture");
+        store.add(primary); store.add(reserve);
+        store.setProfileEnabled(primary.id, false);
+        assertFalse(Profile.fromJson(store.primaryProfile().toJson()).enabled);
+        assertEquals(primary.id, store.primaryId);
+        assertEquals(reserve.id, store.firstConnectionProfile().id);
+        assertEquals(1, store.connectionProfiles().size());
+        assertFalse(store.chooseConnection(primary.id, primary.id, primary.id));
+        store.setProfileEnabled(reserve.id, false);
+        assertNull(store.firstConnectionProfile());
+        assertEquals(2, store.profiles.size());
+        store.setProfileEnabled(primary.id, true);
+        assertEquals(primary.id, new SecureStore(fixture).firstConnectionProfile().id);
+    }
+
+    public void testConcurrentProfileEditsCannotEnableDisabledProfile() throws Exception {
+        SecureStore store = new SecureStore(fixture);
+        Profile first = new Profile("Primary", Profile.AMNEZIA, "fixture");
+        Profile second = new Profile("Reserve", Profile.VLESS, "fixture");
+        store.add(first); store.add(second);
+        SecureStore stale = new SecureStore(fixture);
+        store.setProfileEnabled(second.id, false);
+        stale.rename(second.id, "Renamed");
+        SecureStore read = new SecureStore(fixture);
+        Profile renamed = read.profiles.get(1);
+        assertEquals("Renamed", renamed.name); assertFalse(renamed.enabled);
+        read.setLastResort(second.id, true);
+        assertFalse(new SecureStore(fixture).profiles.get(1).enabled);
+        read.selectPrimary(second.id);
+        assertFalse(new SecureStore(fixture).primaryProfile().enabled);
+        assertEquals(first.id, new SecureStore(fixture).firstConnectionProfile().id);
+    }
+
+    public void testOldAttemptFailureCannotCancelRestartOfSameProfile() throws Exception {
+        AutomationService service = new AutomationService();
+        try {
+            for (String name : new String[]{"runningId", "runningAttemptId"}) {
+                java.lang.reflect.Field field = AutomationService.class.getDeclaredField(name); field.setAccessible(true);
+                field.set(service, name.equals("runningId") ? "same-profile" : "new-attempt");
+            }
+            java.lang.reflect.Method failure = AutomationService.class.getDeclaredMethod("handleTunnelFailure", String.class, String.class);
+            failure.setAccessible(true);
+            failure.invoke(service, "same-profile", "old-attempt");
+            failure.invoke(service, "same-profile", null);
+            java.lang.reflect.Field id = AutomationService.class.getDeclaredField("runningAttemptId"); id.setAccessible(true);
+            assertEquals("new-attempt", id.get(service));
+            java.lang.reflect.Field scheduled = AutomationService.class.getDeclaredField("healthScheduled"); scheduled.setAccessible(true);
+            assertFalse("Stale failures do not enter recovery or schedule a retry", scheduled.getBoolean(service));
+        } finally {
+            java.lang.reflect.Field handler = AutomationService.class.getDeclaredField("handler"); handler.setAccessible(true);
+            ((android.os.Handler)handler.get(service)).removeCallbacksAndMessages(null);
+            for (String name : new String[]{"worker", "probes"}) {
+                java.lang.reflect.Field f = AutomationService.class.getDeclaredField(name); f.setAccessible(true);
+                ((java.util.concurrent.ExecutorService)f.get(service)).shutdownNow();
+            }
+        }
+    }
+
+    public void testProtectedModeIsOptInAndMergesWithConcurrentUiSave() throws Exception {
+        SecureStore initial = new SecureStore(fixture);
+        assertFalse("Existing/default settings keep the legacy engine", initial.protectedMode);
+        SecureStore staleUi = new SecureStore(fixture);
+        initial.protectedMode = true;
+        initial.save("protectedMode");
+        staleUi.theme = SecureStore.THEME_LIGHT;
+        staleUi.save();
+        SecureStore read = new SecureStore(fixture);
+        assertTrue("A stale settings screen cannot silently remove protection", read.protectedMode);
+        assertEquals(SecureStore.THEME_LIGHT, read.theme);
+        read.setControlMode(SecureStore.MANUAL_OFF);
+        assertTrue("Manual OFF pauses the transport, not protection", new SecureStore(fixture).protectedMode);
+        read = new SecureStore(fixture);
+        read.protectedMode = false;
+        read.save("protectedMode");
+        assertFalse(new SecureStore(fixture).protectedMode);
+    }
+
+    public void testProtectedAppListsRetainBothRoutingModes() throws Exception {
+        SecureStore store = new SecureStore(fixture);
+        store.protectedMode = true;
+        store.save("protectedMode");
+        Set<String> only = new LinkedHashSet<>(), excluded = new LinkedHashSet<>();
+        only.add("fixture.protected"); excluded.add("fixture.direct");
+        store.setAppPolicy(AppPolicy.ONLY, only, excluded);
+        SecureStore read = new SecureStore(fixture);
+        assertTrue(read.protectedMode); assertEquals(only, read.selectedPackages);
+        read.setAppPolicy(AppPolicy.EXCLUDE, only, excluded);
+        read = new SecureStore(fixture);
+        assertTrue(read.protectedMode); assertEquals(excluded, read.selectedPackages);
+        assertEquals(only, read.onlyPackages); assertEquals(excluded, read.excludedPackages);
+    }
+
     public void testPrimaryOrderSurvivesFailoverAndNewSelection() throws Exception {
         SecureStore store = new SecureStore(fixture);
         Profile first = new Profile("First", Profile.AMNEZIA, "fixture");
@@ -234,9 +331,31 @@ public final class ModelValidationTest extends InstrumentationTestCase {
     public void testQwdttHttpProbeAcceptsCarriageReturn() {
         assertTrue(ConnectionProbe.successfulHttpStatus("HTTP/1.1 200 OK\r"));
         assertTrue(ConnectionProbe.successfulHttpStatus("HTTP/1.0 302 Found\r\n"));
-        assertFalse(ConnectionProbe.successfulHttpStatus("HTTP/1.1 500 Error\r"));
+        assertTrue(ConnectionProbe.successfulHttpStatus("HTTP/1.1 403 Forbidden\r"));
+        assertTrue(ConnectionProbe.successfulHttpStatus("HTTP/1.1 429 Too Many Requests\r"));
+        assertTrue(ConnectionProbe.successfulHttpStatus("HTTP/1.1 500 Error\r"));
+        assertFalse(ConnectionProbe.successfulHttpStatus("HTTP/1.1 600 Invalid\r"));
         assertFalse(ConnectionProbe.successfulHttpStatus("invalid 200 OK\r"));
         assertFalse(ConnectionProbe.successfulHttpStatus(null));
+    }
+
+    public void testSiteErrorsStillProveHttpsTraffic() {
+        for(int code:new int[]{200,204,301,403,429,500,503,599})assertTrue(ConnectionProbe.isHttpResponse(code));
+        for(int code:new int[]{-1,0,99,600})assertFalse(ConnectionProbe.isHttpResponse(code));
+    }
+
+    public void testConfirmationUsesIndependentSiteAndAllowsSlowResponse() {
+        ConnectionProbe.EndpointProbe thirdOnly=address->address.contains("gstatic.com");
+        assertFalse("Unavailable first two sites fail a short check",ConnectionProbe.probeAny(thirdOnly,false));
+        assertTrue("An independent site prevents false failover",ConnectionProbe.probeAny(thirdOnly,true));
+        assertTrue("DNS failure alone does not discard a working HTTPS data path",
+                ConnectionProbe.probeAny(address->address.startsWith("https://1.1.1.1/"),true));
+        assertTrue("A slow working tunnel survives confirmation",ConnectionProbe.probeAny(address->{
+            if(!address.contains("gstatic.com"))return false;
+            try {Thread.sleep(6000);}catch(InterruptedException e){Thread.currentThread().interrupt();return false;}
+            return true;
+        },true));
+        assertFalse("An entirely dead path still fails confirmation",ConnectionProbe.probeAny(address->false,true));
     }
 
     public void testMigrationPreservesIntentAndSetsTwoHourReturnOnce() throws Exception {
@@ -314,6 +433,67 @@ public final class ModelValidationTest extends InstrumentationTestCase {
         assertEquals(ConnectionProbe.Result.NO_NETWORK, ConnectionProbe.classify(false, false, false));
         // A successful VPN request takes precedence over a transient network snapshot.
         assertEquals(ConnectionProbe.Result.HEALTHY, ConnectionProbe.classify(true, true, false));
+    }
+
+    public void testNetworkReturnDuringStartupClearsOfflineStatus() throws Exception {
+        SecureStore store = new SecureStore(fixture);
+        Profile profile = new Profile("Startup regression", Profile.QWDTT, "{}");
+        store.profiles.add(profile); store.activeId = profile.id; store.primaryId = profile.id;
+        store.connectionGuard = true; store.manualMode = SecureStore.MANUAL_ON; store.save();
+        AutomationService service = new AutomationService();
+        java.lang.reflect.Method attach = android.content.ContextWrapper.class
+                .getDeclaredMethod("attachBaseContext", android.content.Context.class);
+        attach.setAccessible(true); attach.invoke(service, fixture);
+        java.lang.reflect.Method finish = AutomationService.class.getDeclaredMethod("finishHealth",
+                ConnectionProbe.Result.class, int.class, String.class);
+        finish.setAccessible(true);
+        try {
+            String[] names = {"runningId", "runningType", "generation", "startedAt"};
+            Object[] values = {profile.id, Profile.QWDTT, 7, android.os.SystemClock.elapsedRealtime()};
+            for (int i = 0; i < names.length; i++) {
+                java.lang.reflect.Field field = AutomationService.class.getDeclaredField(names[i]);
+                field.setAccessible(true); field.set(service, values[i]);
+            }
+            for (ConnectionProbe.Result pending : new ConnectionProbe.Result[] {
+                    ConnectionProbe.Result.FAILED, ConnectionProbe.Result.VPN_MISSING}) {
+                finish.invoke(service, ConnectionProbe.Result.NO_NETWORK, 7, profile.id);
+                assertTrue("Offline observation is displayed", StatusStore.detail(fixture).contains("Нет сети"));
+                finish.invoke(service, pending, 7, profile.id);
+                assertEquals("Restored network does not imply a healthy VPN", StatusStore.CONNECTING, StatusStore.state(fixture));
+                assertFalse("Old offline message must disappear when the network returns",
+                        StatusStore.detail(fixture).contains("Нет сети"));
+            }
+            finish.invoke(service, ConnectionProbe.Result.HEALTHY, 7, profile.id);
+            assertEquals("Only verified traffic marks the connection ON", StatusStore.ON, StatusStore.state(fixture));
+            finish.invoke(service, ConnectionProbe.Result.FAILED, 7, profile.id);
+            assertEquals("An inconclusive short probe does not announce a reconnect",StatusStore.ON,StatusStore.state(fixture));
+            java.lang.reflect.Field running=AutomationService.class.getDeclaredField("runningId");running.setAccessible(true);
+            assertEquals("Confirmation retains the actual tunnel",profile.id,running.get(service));
+            finish.invoke(service, ConnectionProbe.Result.HEALTHY, 7, profile.id);
+            java.lang.reflect.Field failures=AutomationService.class.getDeclaredField("consecutiveTrafficFailures");failures.setAccessible(true);
+            assertEquals("A working confirmation cancels failover",0,failures.getInt(service));
+        } finally {
+            java.lang.reflect.Field handler = AutomationService.class.getDeclaredField("handler");
+            handler.setAccessible(true); ((android.os.Handler) handler.get(service)).removeCallbacksAndMessages(null);
+            for (String name : new String[] {"worker", "probes"}) {
+                java.lang.reflect.Field field = AutomationService.class.getDeclaredField(name); field.setAccessible(true);
+                ((java.util.concurrent.ExecutorService) field.get(service)).shutdownNow();
+            }
+        }
+    }
+
+    public void testConnectingPhysicalNetworkNeedsUsableIpAddress() throws Exception {
+        android.net.LinkProperties links = new android.net.LinkProperties();
+        assertFalse("Missing link properties are not a usable physical connection", ConnectionProbe.hasUsableAddress(null));
+        assertFalse("INTERNET capability alone does not supply an IP address", ConnectionProbe.hasUsableAddress(links));
+        assertFalse("IPv6 link-local alone cannot carry Internet traffic",
+                ConnectionProbe.isUsableAddress(java.net.InetAddress.getByName("fe80::1")));
+        assertFalse("Loopback is not a physical Internet address",
+                ConnectionProbe.isUsableAddress(java.net.InetAddress.getByName("127.0.0.1")));
+        assertTrue("A private IPv4 address can carry VPN traffic through a router",
+                ConnectionProbe.isUsableAddress(java.net.InetAddress.getByName("192.168.40.2")));
+        assertTrue("A configured IPv6 transport remains eligible",
+                ConnectionProbe.isUsableAddress(java.net.InetAddress.getByName("2001:db8::2")));
     }
 
     public void testImportValidAndInvalidFormats() throws Exception {

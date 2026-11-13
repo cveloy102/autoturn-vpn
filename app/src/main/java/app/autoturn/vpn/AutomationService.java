@@ -34,6 +34,7 @@ import java.util.concurrent.RejectedExecutionException;
 
 public final class AutomationService extends Service {
     static final String ACTION_REFRESH = "app.autoturn.vpn.REFRESH";
+    static final String ACTION_RESTART_QUEUE = "app.autoturn.vpn.RESTART_QUEUE";
     static final String ACTION_TUNNEL_FAILED = "app.autoturn.vpn.TUNNEL_FAILED";
     private static final String CHANNEL = "automation";
     private static final String TAG = "AutoTurnGuard";
@@ -52,6 +53,8 @@ public final class AutomationService extends Service {
     private String runningId = "";
     private String runningType = "";
     private String runningPolicy = "";
+    private String runningAttemptId = "";
+    private boolean runningProtected;
     private String guardProfileId = "";
     private boolean verified;
     private boolean hadHealthyConnection;
@@ -64,6 +67,7 @@ public final class AutomationService extends Service {
     private BroadcastReceiver wakeReceiver;
     private long startedAt;
     private long pauseUntil;
+    private EndpointUpdates endpointUpdates;
     private GoBackend backend;
     private final Tunnel tunnel = new Tunnel() {
         @Override public String getName() { return "AutoTurn"; }
@@ -85,6 +89,7 @@ public final class AutomationService extends Service {
                 NotificationManager.IMPORTANCE_LOW));
         startForeground(100, notification("Следим за домашней сетью"));
         connectivity = getSystemService(ConnectivityManager.class);
+        endpointUpdates = new EndpointUpdates(this,false);
         wakeReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context context, Intent intent) {
                 enqueue(() -> {
@@ -151,16 +156,20 @@ public final class AutomationService extends Service {
         startForeground(100, notification(foregroundDetail.isEmpty() ? "Следим за домашней сетью" : foregroundDetail));
         if (intent != null && ACTION_TUNNEL_FAILED.equals(intent.getAction())) {
             String failedId = intent.getStringExtra(XrayVpnService.EXTRA_PROFILE_ID);
-            worker.execute(() -> handleTunnelFailure(failedId));
+            String attemptId = intent.getStringExtra(XrayVpnService.EXTRA_ATTEMPT_ID);
+            worker.execute(() -> handleTunnelFailure(failedId, attemptId));
             return START_STICKY;
         }
-        if (intent != null && ACTION_REFRESH.equals(intent.getAction()))
+        if (intent != null && ACTION_RESTART_QUEUE.equals(intent.getAction())) {
+            worker.execute(this::restartQueue);
+        } else if (intent != null && ACTION_REFRESH.equals(intent.getAction()))
             worker.execute(this::applyDecision);
         else schedule();
         return START_STICKY;
     }
 
     @Override public void onDestroy() {
+        if(endpointUpdates!=null)endpointUpdates.close();
         if (wakeReceiver != null) unregisterReceiver(wakeReceiver);
         handler.removeCallbacks(delayedApply);
         handler.removeCallbacks(returnToAuto);
@@ -168,8 +177,18 @@ public final class AutomationService extends Service {
         if (callback != null) connectivity.unregisterNetworkCallback(callback);
         if (vpnCallback != null) connectivity.unregisterNetworkCallback(vpnCallback);
         worker.execute(() -> {
-            stopCurrent();
-            StatusStore.set(this, StatusStore.OFF, "Автоматизация выключена");
+            try {
+                SecureStore store = new SecureStore(this);
+                if (needsProtection(store)) {
+                    holdProtection("Трафик заблокирован · автоматизация остановлена");
+                } else {
+                    stopCurrent();
+                    StatusStore.set(this, StatusStore.OFF, "Автоматизация выключена");
+                }
+            } catch (Exception ignored) {
+                // Do not tear down a live protected service if settings cannot be read.
+                if (!runningProtected) stopCurrent();
+            }
         });
         worker.shutdown();
         probes.shutdownNow();
@@ -198,24 +217,39 @@ public final class AutomationService extends Service {
                 handler.postDelayed(returnToAuto, Math.max(1, store.manualUntil - System.currentTimeMillis()));
             AutoReturnReceiver.sync(this);
             if (!guardEnabled(store)) clearHealth();
-            if (!store.automation && SecureStore.MANUAL_AUTO.equals(store.manualMode)) {
+            if (!store.protectedMode && !store.automation && SecureStore.MANUAL_AUTO.equals(store.manualMode)) {
                 guardProfileId = "";
                 stopSelfResult(decisionStartId); return;
             }
             Profile candidate = store.activeProfile();
             if (SecureStore.MANUAL_OFF.equals(store.manualMode)) {
-                stopCurrent();
+                if (needsProtection(store)) holdProtection("VPN остановлен · трафик заблокирован");
+                else {
+                    stopCurrent();
+                    StatusStore.set(this, StatusStore.OFF, "VPN выключен вручную");
+                }
                 clearHealth();
                 guardProfileId = "";
-                StatusStore.set(this, StatusStore.OFF, "VPN выключен вручную");
-                updateNotification("VPN выключен вручную");
+                updateNotification(needsProtection(store) ? "VPN остановлен · защита активна" : "VPN выключен вручную");
                 return;
             }
-            if (candidate == null || (SecureStore.MANUAL_AUTO.equals(store.manualMode) && store.homeSsids.isEmpty())) {
-                stopCurrent();
+            if (candidate == null || !candidate.enabled) {
+                Profile first = store.firstConnectionProfile();
+                if (first != null) {
+                    if (!store.chooseConnection(store.primaryId, store.activeId, first.id)) { schedule(0); return; }
+                    candidate = store.activeProfile();
+                } else candidate = null;
+            }
+            if (candidate == null || (!store.protectedMode && SecureStore.MANUAL_AUTO.equals(store.manualMode) && store.homeSsids.isEmpty())) {
+                if (needsProtection(store)) holdProtection(store.profiles.isEmpty() ? "Трафик заблокирован · добавьте VPN-профиль" :
+                        "Трафик заблокирован · все профили отключены");
+                else {
+                    stopCurrent();
+                    StatusStore.set(this, StatusStore.ERROR, store.profiles.isEmpty() ? "Выберите профиль и домашний Wi‑Fi" :
+                            candidate == null ? "Все профили отключены · разрешите подключение в Профилях" : "Выберите домашний Wi‑Fi");
+                }
                 clearHealth();
                 guardProfileId = "";
-                StatusStore.set(this, StatusStore.ERROR, "Выберите профиль и домашний Wi‑Fi");
                 return;
             }
             boolean atHome = store.isHomeSsid(ssid);
@@ -230,8 +264,8 @@ public final class AutomationService extends Service {
             }
             // A fresh VPN session always starts with the user's primary profile.
             // Failover retains guardProfileId so network callbacks keep a working backup.
-            if (guardProfileId.isEmpty() && store.primaryProfile() != null) {
-                if (!store.chooseConnection(store.primaryId, store.activeId, store.primaryId)) {
+            if (guardProfileId.isEmpty() && store.firstConnectionProfile() != null) {
+                if (!store.chooseConnection(store.primaryId, store.activeId, store.firstConnectionProfile().id)) {
                     schedule(0);
                     return;
                 }
@@ -251,22 +285,32 @@ public final class AutomationService extends Service {
                 pauseUntil = 0;
             }
             if (guardEnabled(store) && SystemClock.elapsedRealtime() < pauseUntil) return;
-            String policy = store.appMode + ":" + store.selectedPackages + ":" + guardEnabled(store);
+            String policy = store.appMode + ":" + store.selectedPackages + ":" + guardEnabled(store) + ":" + store.protectedMode;
             if (profile.id.equals(runningId) && policy.equals(runningPolicy) &&
                     !StatusStore.ERROR.equals(StatusStore.state(this))) {
                 if (guardEnabled(store) && !healthScheduled)
                     scheduleHealth(verified ? CHECK_INTERVAL_MS : 1000);
                 return;
             }
-            stopCurrent();
+            stopCurrent(store.protectedMode);
             verified = false;
             generation++;
+            runningAttemptId = java.util.UUID.randomUUID().toString();
             StatusStore.set(this, StatusStore.CONNECTING,
                     SecureStore.MANUAL_ON.equals(store.manualMode) ? "Включаем VPN вручную" :
                     atHome ? "Включаем вручную для домашней сети" :
                             ssid.isEmpty() ? "Сеть не определена · подключаем VPN" :
                                     "Вне домашней сети · подключаемся");
-            if (Profile.AMNEZIA.equals(profile.type)) {
+            if (store.protectedMode) {
+                runningProtected = true;
+                runningType = profile.type;
+                runningId = profile.id;
+                runningPolicy = policy;
+                startForegroundService(new Intent(this, ProtectedVpnService.class)
+                        .setAction(ProtectedVpnService.ACTION_START)
+                        .putExtra(XrayVpnService.EXTRA_PROFILE_ID, profile.id)
+                        .putExtra(XrayVpnService.EXTRA_ATTEMPT_ID, runningAttemptId));
+            } else if (Profile.AMNEZIA.equals(profile.type)) {
                 if (backend == null) {
                     backend = new GoBackend(this);
                 }
@@ -283,6 +327,14 @@ public final class AutomationService extends Service {
                         });
                 });
                 Config config = Config.parse(new BufferedReader(new StringReader(profile.config)));
+                config = new EndpointResolver(this,()->{
+                    try {
+                        SecureStore latest=new SecureStore(this);
+                        return generation==handshakeGeneration && profile.id.equals(latest.activeId) && wantsVpn(latest);
+                    }catch(Exception e){return false;}
+                },false).resolveAwg(config);
+                SecureStore afterResolution=new SecureStore(this);
+                if(!profile.id.equals(afterResolution.activeId) || !wantsVpn(afterResolution)){schedule(0);return;}
                 config = AppPolicy.forAmnezia(config, store.appMode,
                         AppPolicy.routed(this, store));
                 backend.setState(tunnel, Tunnel.State.UP, config);
@@ -293,6 +345,7 @@ public final class AutomationService extends Service {
             } else {
                 Intent start = new Intent(this, XrayVpnService.class).setAction(XrayVpnService.ACTION_START);
                 start.putExtra(XrayVpnService.EXTRA_PROFILE_ID, profile.id);
+                start.putExtra(XrayVpnService.EXTRA_ATTEMPT_ID, runningAttemptId);
                 runningType = profile.type;
                 runningId = profile.id;
                 runningPolicy = policy;
@@ -304,8 +357,10 @@ public final class AutomationService extends Service {
             if (guardEnabled(store)) Log.i(TAG, "Started " + profile.type + "; checking connection");
             if (guardEnabled(store)) scheduleHealth(1000);
         } catch (Exception e) {
-            stopCurrent();
-            StatusStore.set(this, StatusStore.ERROR, "VPN не удалось включить. Откройте AutoTurn.");
+            boolean protect = store != null && needsProtection(store);
+            stopCurrent(protect);
+            if (protect) holdProtection("Трафик заблокирован · VPN не удалось включить");
+            else StatusStore.set(this, StatusStore.ERROR, "VPN не удалось включить. Откройте AutoTurn.");
             updateNotification("Ошибка подключения VPN");
             if (store != null && guardEnabled(store)) {
                 try { recover(store); }
@@ -315,7 +370,34 @@ public final class AutomationService extends Service {
     }
 
     private boolean guardEnabled(SecureStore store) {
-        return store.connectionGuard;
+        return store.connectionGuard || store.protectedMode;
+    }
+
+    private void restartQueue() {
+        try {
+            SecureStore store = new SecureStore(this);
+            if (store.firstConnectionProfile() == null) { applyDecision(); return; }
+            if (!wantsVpn(store)) store.setControlMode(SecureStore.MANUAL_ON);
+            stopCurrent(store.protectedMode);
+            clearHealth();
+            guardProfileId = "";
+            applyDecision();
+        } catch (Exception ignored) {
+            StatusStore.set(this, StatusStore.ERROR, "Не удалось начать очередь заново");
+        }
+    }
+
+    private boolean needsProtection(SecureStore store) {
+        return ProtectionRules.needsBarrier(store.protectedMode, store.manualMode, store.isHomeSsid(ssid));
+    }
+
+    private void holdProtection(String detail) {
+        // Only the VPN owner may announce BLOCKED, after successfully establishing its TUN.
+        StatusStore.set(this, StatusStore.CONNECTING, "Устанавливаем блокировку трафика");
+        stopCurrent(true);
+        runningProtected = true;
+        startForegroundService(new Intent(this, ProtectedVpnService.class).setAction(ProtectedVpnService.ACTION_HOLD)
+                .putExtra("blockedDetail", detail));
     }
 
     private void clearHealth() {
@@ -335,9 +417,11 @@ public final class AutomationService extends Service {
     }
 
     private boolean wantsVpn(SecureStore store) {
+        if (store.protectedMode) return ProtectionRules.shouldConnect(true, store.manualMode,
+                store.isHomeSsid(ssid), store.firstConnectionProfile() != null);
         if (!store.automation && SecureStore.MANUAL_AUTO.equals(store.manualMode)) return false;
         if (SecureStore.MANUAL_OFF.equals(store.manualMode)) return false;
-        if (store.activeProfile() == null) return false;
+        if (store.firstConnectionProfile() == null) return false;
         return SecureStore.MANUAL_ON.equals(store.manualMode) ||
                 (!store.homeSsids.isEmpty() && !store.isHomeSsid(ssid));
     }
@@ -364,14 +448,15 @@ public final class AutomationService extends Service {
             final int probeGeneration = generation;
             final String probeProfileId = runningId;
             final boolean qwdtt = Profile.QWDTT.equals(runningType);
+            final boolean confirmation = consecutiveTrafficFailures > 0;
             if (qwdtt && QwdttState.pending(this, runningId)) {
                 StatusStore.set(this, StatusStore.CONNECTING, "qWDTT · требуется капча VK — откройте AutoTurn");
                 scheduleHealth(2000);
                 return;
             }
             activeProbe = probes.submit(() -> {
-                ConnectionProbe.Result result = qwdtt ? ConnectionProbe.checkQwdtt(this, connectivity, probeProfileId) :
-                        ConnectionProbe.check(this, connectivity);
+                ConnectionProbe.Result result = qwdtt ? ConnectionProbe.checkQwdtt(this, connectivity, probeProfileId, confirmation) :
+                        ConnectionProbe.check(this, connectivity, confirmation);
                 enqueue(() -> finishHealth(result, probeGeneration, probeProfileId));
             });
         } catch (Exception e) {
@@ -411,10 +496,15 @@ public final class AutomationService extends Service {
             } else if ((result == ConnectionProbe.Result.VPN_MISSING || result == ConnectionProbe.Result.FAILED) && !verified &&
                     SystemClock.elapsedRealtime() - startedAt <
                             (Profile.QWDTT.equals(runningType) ? 310_000 : START_GRACE_MS)) {
+                // A pending VPN is different from a missing physical network. In particular,
+                // do not retain an earlier NO_NETWORK label throughout qWDTT's startup window.
+                StatusStore.set(this, StatusStore.CONNECTING, "Подключаем VPN · " + store.activeProfile().name);
                 scheduleHealth(1000);
             } else {
                 if (result == ConnectionProbe.Result.FAILED && ++consecutiveTrafficFailures < 2) {
-                    StatusStore.set(this, StatusStore.CONNECTING, "VPN не передаёт трафик · перепроверяем");
+                    Log.i(TAG, "Short traffic probe inconclusive; confirming before failover");
+                    StatusStore.set(this, verified ? StatusStore.ON : StatusStore.CONNECTING,
+                            "Проверяем доступ через VPN · соединение сохраняется");
                     updateNotification("Перепроверяем доступ через VPN");
                     scheduleHealth(2000);
                     return;
@@ -428,8 +518,8 @@ public final class AutomationService extends Service {
         }
     }
 
-    private void handleTunnelFailure(String failedId) {
-        if (failedId == null || !failedId.equals(runningId)) return;
+    private void handleTunnelFailure(String failedId, String attemptId) {
+        if (failedId == null || !failedId.equals(runningId) || runningAttemptId.isEmpty() || !runningAttemptId.equals(attemptId)) return;
         try {
             SecureStore store = new SecureStore(this);
             if (guardEnabled(store) && wantsVpn(store) && failedId.equals(store.activeId))
@@ -442,6 +532,10 @@ public final class AutomationService extends Service {
     private void recover(SecureStore store) throws Exception {
         Profile current = store.activeProfile();
         if (current == null) return;
+        if (!current.enabled) { applyDecision(); return; }
+        if(store.protectedMode)startService(new Intent(this,ProtectedVpnService.class)
+                .setAction(ProtectedVpnService.ACTION_REFRESH_ENDPOINT).putExtra(XrayVpnService.EXTRA_PROFILE_ID,current.id));
+        else if(endpointUpdates!=null)endpointUpdates.failed(current.id);
         Profile next = nextProfile(store, current.id);
         Log.i(TAG, "Failover from " + current.type + " to " +
                 (next == null ? current.type : next.type));
@@ -450,14 +544,15 @@ public final class AutomationService extends Service {
             return;
         }
         failedProfiles++;
-        stopCurrent();
+        stopCurrent(store.protectedMode);
         verified = false;
         if (next != null) guardProfileId = next.id;
         // If a tunnel worked earlier, retry it once before pausing the whole cycle.
-        if (failedProfiles >= store.profiles.size() * (hadHealthyConnection ? 2 : 1)) {
+        if (failedProfiles >= store.connectionProfiles().size() * (hadHealthyConnection ? 2 : 1)) {
             failedProfiles = 0;
             pauseUntil = SystemClock.elapsedRealtime() + ALL_FAILED_PAUSE_MS;
-            StatusStore.set(this, StatusStore.ERROR, "Профили недоступны · повторим через 15 секунд");
+            if (store.protectedMode) holdProtection("Трафик заблокирован · профили недоступны, повторим через 15 секунд");
+            else StatusStore.set(this, StatusStore.ERROR, "Профили недоступны · повторим через 15 секунд");
             updateNotification("Ожидаем повторного подключения VPN");
             scheduleHealth(ALL_FAILED_PAUSE_MS);
             return;
@@ -470,7 +565,7 @@ public final class AutomationService extends Service {
     }
 
     private Profile nextProfile(SecureStore store, String currentId) {
-        java.util.List<Profile> ordered = store.orderedProfiles();
+        java.util.List<Profile> ordered = store.connectionProfiles();
         if (ordered.size() < 2) return null;
         for (int i = 0; i < ordered.size(); i++) {
             if (currentId.equals(ordered.get(i).id))
@@ -480,6 +575,11 @@ public final class AutomationService extends Service {
     }
 
     private void stopCurrent() {
+        stopCurrent(false);
+    }
+
+    private void stopCurrent(boolean keepProtection) {
+        runningAttemptId = "";
         consecutiveTrafficFailures = 0;
         generation++;
         if (activeProbe != null) {
@@ -490,10 +590,19 @@ public final class AutomationService extends Service {
         healthScheduled = false;
         verified = false;
         observedVpn = null;
+        boolean protectedStopSent = false;
         try {
-            if (Profile.AMNEZIA.equals(runningType) && backend != null)
+            if (runningProtected) {
+                if (keepProtection) startService(new Intent(this, ProtectedVpnService.class)
+                        .setAction(ProtectedVpnService.ACTION_HOLD));
+                else {
+                    stopProtectedOwner(true);
+                    protectedStopSent = true;
+                }
+                if (!keepProtection) runningProtected = false;
+            } else if (Profile.AMNEZIA.equals(runningType) && backend != null)
                 backend.setState(tunnel, Tunnel.State.DOWN, null);
-            if (Profile.VLESS.equals(runningType) || Profile.HYSTERIA2.equals(runningType) || Profile.QWDTT.equals(runningType)) {
+            else if (Profile.VLESS.equals(runningType) || Profile.HYSTERIA2.equals(runningType) || Profile.QWDTT.equals(runningType)) {
                 Intent stop = new Intent(this, XrayVpnService.class).setAction(XrayVpnService.ACTION_STOP);
                 startService(stop);
             }
@@ -503,6 +612,27 @@ public final class AutomationService extends Service {
         runningId = "";
         runningType = "";
         runningPolicy = "";
+        // Also release an orphan owner after AutomationService was recreated in another process.
+        if (!keepProtection && !protectedStopSent) {
+            try { stopProtectedOwner(false); }
+            catch (Exception ignored) { StatusStore.set(this, StatusStore.ERROR, "Не удалось остановить защиту"); }
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void stopProtectedOwner(boolean knownRunning) {
+        if (!knownRunning) {
+            // Android still exposes our own services. Do not create a protected process
+            // or notification during ordinary legacy-mode decisions when none exists.
+            android.app.ActivityManager manager = getSystemService(android.app.ActivityManager.class);
+            boolean found = false;
+            if (manager != null) for (android.app.ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE))
+                if (ProtectedVpnService.class.getName().equals(service.service.getClassName())) { found = true; break; }
+            if (!found) return;
+        }
+        // Android binds to an established VpnService. stopService() alone need not
+        // destroy a bound service, so the owner must explicitly close its master TUN.
+        startService(new Intent(this, ProtectedVpnService.class).setAction(ProtectedVpnService.ACTION_STOP));
     }
 
     private Notification notification(String text) {

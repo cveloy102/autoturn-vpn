@@ -16,6 +16,7 @@ final class Profile {
     final String type;
     final String config;
     final boolean lastResort;
+    final boolean enabled;
 
     Profile(String name, String type, String config) {
         this(UUID.randomUUID().toString(), name, type, config);
@@ -26,11 +27,16 @@ final class Profile {
     }
 
     Profile(String id, String name, String type, String config, boolean lastResort) {
+        this(id, name, type, config, lastResort, true);
+    }
+
+    Profile(String id, String name, String type, String config, boolean lastResort, boolean enabled) {
         this.id = id;
         this.name = name;
         this.type = type;
         this.config = config;
         this.lastResort = lastResort;
+        this.enabled = enabled;
     }
 
     JSONObject toJson() throws JSONException {
@@ -40,11 +46,13 @@ final class Profile {
         json.put("type", type);
         json.put("config", config);
         json.put("lastResort", lastResort);
+        json.put("enabled", enabled);
         return json;
     }
 
     static Profile fromJson(JSONObject json) throws JSONException {
         return new Profile(json.getString("id"), json.getString("name"),
-                json.getString("type"), json.getString("config"), json.optBoolean("lastResort", false));
+                json.getString("type"), json.getString("config"), json.optBoolean("lastResort", false),
+                json.optBoolean("enabled", true));
     }
 }

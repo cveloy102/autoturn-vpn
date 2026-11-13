@@ -14,6 +14,8 @@ Push-Location "$taskRoot/third_party/qwdtt-client/src"
 try {
     & $Go test -mod=readonly -v socks5_server.go socks5_server_test.go
     if ($LASTEXITCODE -ne 0) { throw 'SOCKS tests failed' }
+    & $Go test -mod=readonly -v bootstrap_dns.go bootstrap_dns_test.go socks5_server.go
+    if ($LASTEXITCODE -ne 0) { throw 'Bootstrap DNS isolation tests failed' }
 } finally { Pop-Location }
 # This uses the existing checkout matching the app's libXray.aar, without modifying it.
 if (!(Test-Path -LiteralPath "$taskRoot/.deps/libxray/go.mod")) {

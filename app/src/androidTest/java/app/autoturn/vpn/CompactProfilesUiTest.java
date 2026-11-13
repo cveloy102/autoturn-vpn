@@ -75,7 +75,8 @@ public final class CompactProfilesUiTest extends InstrumentationTestCase {
         }
         original=Files.readAllBytes(new File(context.getFilesDir(),"settings.enc").toPath());baseline=new SecureStore(context);
         notesVersion=context.getSharedPreferences("release_notes",Context.MODE_PRIVATE).getInt("shown_version",0);
-        SecureStore s=new SecureStore(context);s.setControlMode(SecureStore.MANUAL_OFF);refresh();Thread.sleep(1000);
+        SecureStore s=new SecureStore(context);s.protectedMode=false;s.save("protectedMode");
+        s.setControlMode(SecureStore.MANUAL_OFF);refresh();Thread.sleep(1000);
         s=new SecureStore(context);s.profiles.clear();
         primary=new Profile("Main profile",Profile.AMNEZIA,"synthetic");
         a=new Profile("Reserve A",Profile.AMNEZIA,"synthetic");b=new Profile("Reserve B",Profile.VLESS,"synthetic");
@@ -131,6 +132,30 @@ public final class CompactProfilesUiTest extends InstrumentationTestCase {
             assertTrue(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out));
         }finally{bitmap.recycle();}
     }
+    public void testProfilePermissionsAndRestartButton() throws Exception {
+        String toggle="Разрешить подключение: "+a.name;
+        assertTrue(((android.widget.Switch)find(toggle)).isChecked());
+        click(toggle);
+        assertFalse(((android.widget.Switch)find(toggle)).isChecked());
+        assertFalse(new SecureStore(context).connectionProfiles().stream().anyMatch(p->p.id.equals(a.id)));
+        screenshot("permissions-dark");
+        click("Действия профиля "+a.name);dialogClick("Включить профиль");
+        assertTrue(((android.widget.Switch)find(toggle)).isChecked());
+        SecureStore s=new SecureStore(context);
+        for(Profile p:new java.util.ArrayList<>(s.profiles))s.setProfileEnabled(p.id,false);
+        call("onResume",new Class<?>[]{});
+        call("navigateTo",new Class<?>[]{int.class},0);
+        assertFalse(find("Начать очередь заново ↻").isEnabled());
+        s.setProfileEnabled(primary.id,true);call("onResume",new Class<?>[]{});
+        assertTrue(find("Начать очередь заново ↻").isEnabled());
+        ScrollView scroll=(ScrollView)field("currentScroll");ui(()->scroll.fullScroll(View.FOCUS_DOWN));settle();
+        screenshot("restart-main");
+        call("navigateTo",new Class<?>[]{int.class},1);
+        s=new SecureStore(context);s.theme=SecureStore.THEME_LIGHT;s.save();call("onResume",new Class<?>[]{});
+        screenshot("permissions-light");
+        report("PASS profile switch/menu, disabled queue filtering, restart button availability, both themes");
+    }
+
     public void testNativeDragBothGroupsAndMenus() throws Exception {
         assertNotNull(find("01 / ОСНОВНОЙ"));assertNotNull(find("02 / ОБЫЧНЫЕ РЕЗЕРВЫ"));assertNotNull(find("03 / ПОСЛЕДНИЕ РЕЗЕРВЫ"));
         assertNull("No inline rename button",find("Имя"));assertNull("No inline delete button",find("Удалить"));

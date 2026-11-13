@@ -52,6 +52,8 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_FILE = 10;
     private static final int REQUEST_VPN = 11;
     private static final int REQUEST_VPN_MANUAL = 13;
+    private static final int REQUEST_PROTECTION = 14;
+    private static final int REQUEST_RESTART_VPN = 15;
     private static final int REQUEST_LOCATION = 12;
     private int BG;
     private int CARD;
@@ -193,7 +195,7 @@ public final class MainActivity extends Activity {
             getIntent().removeExtra(EXTRA_MANUAL_ON);
             requestManualOn();
         }
-        if (store.automation || !SecureStore.MANUAL_AUTO.equals(store.manualMode)) refreshAutomation();
+        if (store.protectedMode || store.automation || !SecureStore.MANUAL_AUTO.equals(store.manualMode)) refreshAutomation();
         render();
         showReleaseNotesIfNeeded();
         if (updateUi != null) updateUi.resume();
@@ -319,7 +321,7 @@ public final class MainActivity extends Activity {
                 .append('|').append(store.primaryId)
                 .append('|').append(store.keepAtHome).append('|').append(store.manualMode)
                 .append('|').append(store.autoReturnHours).append('|').append(store.manualUntil)
-                .append('|').append(store.connectionGuard).append('|').append(store.homeSsids)
+                .append('|').append(store.connectionGuard).append('|').append(store.protectedMode).append('|').append(store.homeSsids)
                 .append('|').append(store.appMode).append('|').append(store.selectedPackages);
         if (page == PAGE_PROFILES) key.append('|').append(StatusStore.state(this));
         Profile current = store.activeProfile();
@@ -327,7 +329,7 @@ public final class MainActivity extends Activity {
             key.append('|').append(QwdttState.pending(this, current.id));
         for (Profile profile : store.profiles)
             key.append('|').append(profile.id).append(':').append(profile.name).append(':').append(profile.type)
-                    .append(':').append(profile.lastResort);
+                    .append(':').append(profile.lastResort).append(':').append(profile.enabled);
         return key.toString();
     }
 
@@ -364,8 +366,9 @@ public final class MainActivity extends Activity {
         String detail = StatusStore.detail(this);
         boolean on = StatusStore.ON.equals(state);
         boolean connecting = StatusStore.CONNECTING.equals(state);
+        boolean blocked = StatusStore.BLOCKED.equals(state);
         boolean atHome = StatusStore.OFF.equals(state) && detail.startsWith("Домашний Wi‑Fi");
-        String headline = on ? "На связи." : atHome ? "Вы дома." : connecting ?
+        String headline = blocked ? "Защита активна." : on ? "На связи." : atHome ? "Вы дома." : connecting ?
                 "Подключаемся." : StatusStore.ERROR.equals(state) ? "Нет связи." : "VPN выключен.";
         terminalEyebrow(root, "[ 01 / CONNECTION ]");
         terminalHeadline = TerminalUi.title(root, palette, headline, 36);
@@ -394,7 +397,7 @@ public final class MainActivity extends Activity {
         heading.setGravity(Gravity.CENTER_VERTICAL);
         heading.addView(label("LINK / " + protocolName(active), 10, MUTED, false),
                 new LinearLayout.LayoutParams(0, -2, 1));
-        terminalBadge = label(on ? "● ONLINE" : connecting ? "◌ WAIT" :
+        terminalBadge = label(blocked ? "■ BLOCKED" : on ? "● ONLINE" : connecting ? "◌ WAIT" :
                 StatusStore.ERROR.equals(state) ? "! ERROR" : "■ OFFLINE", 10,
                 on ? palette.online : StatusStore.ERROR.equals(state) ? NEON : MUTED, false);
         terminalBadge.setGravity(Gravity.CENTER_VERTICAL);
@@ -404,7 +407,7 @@ public final class MainActivity extends Activity {
         terminalSignal = new TerminalUi.Signal(this, palette, state);
         signal.addView(terminalSignal,
                 new LinearLayout.LayoutParams(-1, dp(58)));
-        terminalFoot = label(on ? (store.connectionGuard && detail.startsWith("VPN проверен") ?
+        terminalFoot = label(blocked ? "■ ТРАФИК ЗАБЛОКИРОВАН" : on ? ((store.connectionGuard || store.protectedMode) && detail.startsWith("VPN проверен") ?
                 "● ДОСТУП ПРОВЕРЕН" : "● VPN ЗАПУЩЕН") : atHome ? "■ ДОМАШНЯЯ СЕТЬ" :
                 connecting ? "◌ УСТАНАВЛИВАЕМ СВЯЗЬ" : StatusStore.ERROR.equals(state) ?
                 "! НЕТ СОЕДИНЕНИЯ" : "■ VPN ВЫКЛЮЧЕН", 11, MUTED, false);
@@ -413,7 +416,7 @@ public final class MainActivity extends Activity {
         terminalFoot.setEllipsize(android.text.TextUtils.TruncateAt.END);
         signal.addView(terminalFoot, new LinearLayout.LayoutParams(-1, dp(20)));
         root.addView(signal);
-        if (active != null && Profile.QWDTT.equals(active.type) && QwdttState.pending(this, active.id)) {
+        if (active != null && active.enabled && Profile.QWDTT.equals(active.type) && QwdttState.pending(this, active.id)) {
             gap(root, 12);
             root.addView(action("Пройти капчу VK →", false, v -> {
                 org.json.JSONObject pending = QwdttState.read(this);
@@ -423,14 +426,15 @@ public final class MainActivity extends Activity {
             }));
         }
         gap(root, 20);
-        terminalInfo(root, "Основной", store.primaryProfile() == null ? "Не выбран →" : store.primaryProfile().name + " →",
+        terminalInfo(root, "Основной", store.primaryProfile() == null ? "Не выбран →" : store.primaryProfile().name +
+                        (store.primaryProfile().enabled ? " →" : " (отключён) →"),
                 v -> navigateTo(PAGE_PROFILES));
         terminalNetwork = terminalInfo(root, "Сеть", atHome ? currentWifiSsid() : networkLabel(), null);
         boolean manual = !SecureStore.MANUAL_AUTO.equals(store.manualMode);
         terminalInfo(root, "Режим", modeLabel() + " →", v -> showModeChooser());
         if (manual) terminalInfo(root, "Возврат в Авто", returnLabel(), null);
         gap(root, 22);
-        boolean running = on || connecting;
+        boolean running = on || connecting || (blocked && !SecureStore.MANUAL_OFF.equals(store.manualMode));
         terminalPower = action(running ? "Выключить VPN  ↗" : "Включить VPN  ↗", true,
                 v -> {
                     String next = VpnTileService.nextManualMode(store.manualMode, StatusStore.state(this));
@@ -439,6 +443,11 @@ public final class MainActivity extends Activity {
                     else requestManualOn();
                 });
         root.addView(terminalPower);
+        gap(root, 8);
+        Button restart = action("Начать очередь заново ↻", false, v -> requestRestartQueue());
+        restart.setEnabled(store.firstConnectionProfile() != null);
+        restart.setAlpha(restart.isEnabled() ? 1f : .5f);
+        root.addView(restart);
         gap(root, 8);
         Button secondary = action(manual ? "Вернуть Авто сейчас →" : "Выбрать режим →",
                 false, v -> { if (manual) chooseAutomaticMode(); else showModeChooser(); });
@@ -502,20 +511,21 @@ public final class MainActivity extends Activity {
         boolean on = StatusStore.ON.equals(state);
         boolean connecting = StatusStore.CONNECTING.equals(state);
         boolean error = StatusStore.ERROR.equals(state);
+        boolean blocked = StatusStore.BLOCKED.equals(state);
         boolean atHome = StatusStore.OFF.equals(state) && detail.startsWith("Домашний Wi‑Fi");
-        String headline = on ? "На связи." : atHome ? "Вы дома." : connecting ?
+        String headline = blocked ? "Защита активна." : on ? "На связи." : atHome ? "Вы дома." : connecting ?
                 "Подключаемся." : error ? "Нет связи." : "VPN выключен.";
         if (!terminalHeadline.getText().toString().equals(headline + "_"))
             TerminalUi.setTitle(terminalHeadline, palette, headline);
         if (detail.isEmpty()) detail = store.automation ? "Ожидаем подключения к сети" : "Автоматика выключена";
         setTextIfChanged(terminalDescription, detail);
-        setTextIfChanged(terminalBadge, on ? "● ONLINE" : connecting ? "◌ WAIT" : error ? "! ERROR" : "■ OFFLINE");
+        setTextIfChanged(terminalBadge, blocked ? "■ BLOCKED" : on ? "● ONLINE" : connecting ? "◌ WAIT" : error ? "! ERROR" : "■ OFFLINE");
         terminalBadge.setTextColor(on ? palette.online : error ? NEON : MUTED);
-        setTextIfChanged(terminalFoot, on ? (store.connectionGuard && detail.startsWith("VPN проверен") ?
+        setTextIfChanged(terminalFoot, blocked ? "■ ТРАФИК ЗАБЛОКИРОВАН" : on ? ((store.connectionGuard || store.protectedMode) && detail.startsWith("VPN проверен") ?
                 "● ДОСТУП ПРОВЕРЕН" : "● VPN ЗАПУЩЕН") : atHome ? "■ ДОМАШНЯЯ СЕТЬ" :
                 connecting ? "◌ УСТАНАВЛИВАЕМ СВЯЗЬ" : error ? "! НЕТ СОЕДИНЕНИЯ" : "■ VPN ВЫКЛЮЧЕН");
         setTextIfChanged(terminalNetwork, atHome ? currentWifiSsid() : networkLabel());
-        setTextIfChanged(terminalPower, on || connecting ? "Выключить VPN  ↗" : "Включить VPN  ↗");
+        setTextIfChanged(terminalPower, on || connecting || (blocked && !SecureStore.MANUAL_OFF.equals(store.manualMode)) ? "Выключить VPN  ↗" : "Включить VPN  ↗");
         terminalSignal.setState(state);
     }
 
@@ -542,7 +552,7 @@ public final class MainActivity extends Activity {
         homeUpdate.setContentDescription(text);
     }
 
-    private void terminalToggle(LinearLayout root, String title, boolean checked, View.OnClickListener click) {
+    private Switch styledSwitch(String title, boolean checked) {
         Switch control = new Switch(this);
         control.setText(title);
         control.setTextColor(TEXT);
@@ -573,10 +583,16 @@ public final class MainActivity extends Activity {
                 new int[]{palette.light ? Color.WHITE : TEXT, palette.thumbOff}));
         control.setTrackTintList(null);
         control.setChecked(checked);
+        return control;
+    }
+
+    private void terminalToggle(LinearLayout root, String title, boolean checked, View.OnClickListener click) {
+        Switch control = styledSwitch(title, checked);
         control.setOnClickListener(v -> {
             click.onClick(v);
             // Permission requests may defer the action; reflect the saved setting meanwhile.
-            control.setChecked("Автоматика".equals(title) ? store.automation : store.connectionGuard);
+            control.setChecked("Автоматика".equals(title) ? store.automation :
+                    "Защищённый режим".equals(title) ? store.protectedMode : store.connectionGuard || store.protectedMode);
         });
         root.addView(control, new LinearLayout.LayoutParams(-1, -2));
     }
@@ -627,7 +643,12 @@ public final class MainActivity extends Activity {
         TerminalUi.divider(root, palette.divider);
         {
             gap(root, 10);
-            terminalToggle(root, "Контроль соединения", store.connectionGuard, v -> toggleConnectionGuard());
+            terminalToggle(root, "Защищённый режим", store.protectedMode, v -> toggleProtectedMode());
+            root.addView(label("При обрыве и смене профиля приложения в VPN остаются без интернета.\n" +
+                    "Ручное выключение VPN сохраняет блокировку вне дома. Дома — обычное подключение.\n" +
+                    "Не защищает при принудительной остановке приложения или отзыве разрешения VPN.", 12, MUTED, false));
+            gap(root, 18);
+            terminalToggle(root, "Контроль соединения", store.connectionGuard || store.protectedMode, v -> toggleConnectionGuard());
             root.addView(label("Проверяет интернет через VPN.\nЕсли трафик не проходит, перепроверяет\nи переключается на резервный профиль.", 12, MUTED, false));
             gap(root, 18);
             TerminalUi.divider(root, palette.divider);
@@ -656,8 +677,8 @@ public final class MainActivity extends Activity {
         TerminalUi.title(root, palette, "Свои маршруты", 27);
         gap(root, 12);
         root.addView(label(store.profiles.isEmpty() ? "Добавьте первое подключение." :
-                "Каждый запуск — с основного.\nРезервы — сверху вниз.", 13, MUTED, false));
-        if (!store.connectionGuard && !store.profiles.isEmpty()) {
+                "Каждый запуск — с основного.\nОтключённые профили пропускаются.", 13, MUTED, false));
+        if (!store.connectionGuard && !store.protectedMode && !store.profiles.isEmpty()) {
             gap(root, 6);
             root.addView(label("Для автопереключения включите контроль соединения.", 12, MUTED, false));
         }
@@ -719,17 +740,22 @@ public final class MainActivity extends Activity {
             row.addView(handle, new LinearLayout.LayoutParams(dp(40), dp(48)));
             if (lastResort != null) group.attachHandle(handle, row);
             LinearLayout text = new LinearLayout(this); text.setOrientation(LinearLayout.VERTICAL);
-            TextView name = label(p.name, 15, TEXT, false);
+            TextView name = label(p.name, 15, p.enabled ? TEXT : MUTED, false);
             name.setMaxLines(2); name.setEllipsize(android.text.TextUtils.TruncateAt.END);
             text.addView(name);
             String state = StatusStore.state(this);
             boolean current = p.id.equals(store.activeId);
-            String detail = protocolName(p);
-            if (current && (StatusStore.ON.equals(state) || StatusStore.CONNECTING.equals(state)))
+            String detail = protocolName(p) + (p.enabled ? " · Разрешён" : " · Отключён");
+            if (p.enabled && current && (StatusStore.ON.equals(state) || StatusStore.CONNECTING.equals(state)))
                 detail += StatusStore.ON.equals(state) ? " · ● Подключён" : " · ◌ Подключаем";
-            TextView subtitle = label(detail, 10, current && StatusStore.ON.equals(state) ? palette.online : MUTED, false);
+            TextView subtitle = label(detail, 10, p.enabled && current && StatusStore.ON.equals(state) ? palette.online : MUTED, false);
             subtitle.setMaxLines(2); text.addView(subtitle);
             row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+            Switch allowed = styledSwitch("", p.enabled);
+            allowed.setSwitchPadding(0); allowed.setSwitchMinWidth(dp(48));
+            allowed.setContentDescription("Разрешить подключение: " + p.name);
+            allowed.setOnClickListener(v -> toggleProfileEnabled(p));
+            row.addView(allowed, new LinearLayout.LayoutParams(dp(60), dp(48)));
             row.addView(iconAction("⋮", "Действия профиля " + p.name, v -> showProfileMenu(p)),
                     new LinearLayout.LayoutParams(dp(48), dp(48)));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
@@ -750,6 +776,8 @@ public final class MainActivity extends Activity {
     private void showProfileMenu(Profile profile) {
         java.util.List<String> labels = new java.util.ArrayList<>();
         java.util.List<Runnable> actions = new java.util.ArrayList<>();
+        labels.add(profile.enabled ? "Отключить профиль" : "Включить профиль");
+        actions.add(() -> toggleProfileEnabled(profile));
         if (!profile.id.equals(store.primaryId)) {
             labels.add("Сделать основным"); actions.add(() -> selectProfile(profile));
             labels.add(profile.lastResort ? "В обычные резервы" : "В последние резервы");
@@ -791,6 +819,13 @@ public final class MainActivity extends Activity {
         } catch (Exception e) { error("Не удалось изменить порядок"); }
     }
 
+    private void toggleProfileEnabled(Profile profile) {
+        try {
+            store.setProfileEnabled(profile.id, !profile.enabled);
+            refreshAutomation(); render();
+        } catch (Exception e) { render(); error("Не удалось изменить доступность профиля"); }
+    }
+
     private void applyTheme() {
         palette = ThemePalette.of(store.theme, getResources().getConfiguration());
         BG = palette.bg;
@@ -822,13 +857,22 @@ public final class MainActivity extends Activity {
         gap(content, 13);
         content.addView(label("Что нового", 27, TEXT, true));
         gap(content, 17);
-        TextView changes = label("• qWDTT: импорт ссылок и подключение через VK TURN на Android arm64.\n\n" +
-                "• Компактные профили: основной, обычные и последние резервы в отдельных блоках.\n\n" +
-                "• Перетаскивайте резервы за ≡, чтобы задать очередь. Все действия доступны через ⋮.\n\n" +
-                "• Можно сохранить несколько домашних Wi-Fi сетей. В режиме Авто VPN выключается в любой из них.\n\n" +
-                "Профили и настройки сохраняются при обновлении.", 14, MUTED, false);
+        TextView changes = label("Изменения с версии 1.5.0:\n\n" +
+                "• Защищённый режим: сохраняет блокировку трафика при обрывах и смене профилей. По умолчанию выключен.\n\n" +
+                "• Профили можно включать и отключать, сохраняя их настройки и место в очереди.\n\n" +
+                "• Кнопка на главной начинает очередь заново с основного разрешённого профиля.\n\n" +
+                "• IP серверов запоминаются и обновляются в фоне без разрыва соединения.\n\n" +
+                "• Служебный DNS qWDTT использует текущую сеть; DNS приложений в защищённом режиме остаётся в VPN.\n\n" +
+                "• Улучшены проверки связи и обновление статуса «Нет сети».\n\n" +
+                "В защищённом режиме ручное выключение VPN вне дома сохраняет блокировку. " +
+                "Для прямого доступа выключите защищённый режим. Дома в Авто всё работает как прежде.\n\n" +
+                "Защита не действует при принудительной остановке приложения, отзыве VPN-разрешения " +
+                "и до первоначального запуска защиты после загрузки телефона.", 14, MUTED, false);
         changes.setLineSpacing(dp(2), 1f);
-        content.addView(changes);
+        ScrollView changesScroll=new ScrollView(this);
+        changesScroll.addView(changes);
+        content.addView(changesScroll,new LinearLayout.LayoutParams(-1,
+                Math.min(dp(400),(int)(getResources().getDisplayMetrics().heightPixels*.45f))));
         gap(content, 22);
 
         AlertDialog dialog = new AlertDialog.Builder(this).setView(content).create();
@@ -951,12 +995,41 @@ public final class MainActivity extends Activity {
     }
 
     private void toggleConnectionGuard() {
+        if (store.protectedMode) { error("В защищённом режиме контроль соединения включён обязательно."); return; }
         try {
             store.connectionGuard = !store.connectionGuard;
             store.save();
             refreshAutomation();
             render();
         } catch (Exception e) { error("Не удалось изменить проверку соединения"); }
+    }
+
+    private void toggleProtectedMode() {
+        if (store.protectedMode) {
+            AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Отключить защищённый режим?")
+                    .setMessage("При остановленном или недоступном VPN приложения смогут выйти напрямую. " +
+                            "AutoTurn вернётся к обычному режиму работы.")
+                    .setPositiveButton("Отключить", (d, w) -> setProtectedMode(false))
+                    .setNegativeButton("Отмена", null).show();
+            TerminalUi.styleDialog(dialog, palette);
+        } else {
+            Intent prepare = VpnService.prepare(this);
+            if (prepare != null) startActivityForResult(prepare, REQUEST_PROTECTION);
+            else setProtectedMode(true);
+        }
+    }
+
+    private void setProtectedMode(boolean enabled) {
+        try {
+            store.protectedMode = enabled;
+            store.save("protectedMode");
+            startForegroundService(new Intent(this, AutomationService.class).setAction(AutomationService.ACTION_REFRESH));
+            render();
+        } catch (Exception e) {
+            try { store = new SecureStore(this); } catch (Exception ignored) { }
+            StatusStore.set(this, StatusStore.ERROR, "Не удалось применить защищённый режим · откройте настройки");
+            render(); error("Не удалось изменить защищённый режим");
+        }
     }
 
 
@@ -1195,10 +1268,18 @@ public final class MainActivity extends Activity {
     }
 
     private void requestManualOn() {
-        if (store.activeProfile() == null) { error("Сначала выберите профиль VPN"); return; }
+        if (store.firstConnectionProfile() == null) { error("Нет разрешённых профилей. Включите профиль в разделе Профили."); return; }
         Intent prepare = VpnService.prepare(this);
         if (prepare != null) startActivityForResult(prepare, REQUEST_VPN_MANUAL);
         else setManualMode(SecureStore.MANUAL_ON);
+    }
+
+    private void requestRestartQueue() {
+        try { store = new SecureStore(this); } catch (Exception e) { error("Не удалось прочитать профили"); return; }
+        if (store.firstConnectionProfile() == null) { error("Нет разрешённых профилей"); return; }
+        Intent prepare = VpnService.prepare(this);
+        if (prepare != null) startActivityForResult(prepare, REQUEST_RESTART_VPN);
+        else startForegroundService(new Intent(this, AutomationService.class).setAction(AutomationService.ACTION_RESTART_QUEUE));
     }
 
     private void setManualMode(String mode) {
@@ -1215,7 +1296,7 @@ public final class MainActivity extends Activity {
 
     private void refreshAutomation() {
         VpnTileService.refresh(this);
-        if (store.automation || !SecureStore.MANUAL_AUTO.equals(store.manualMode)) {
+        if (store.protectedMode || store.automation || !SecureStore.MANUAL_AUTO.equals(store.manualMode)) {
             Intent intent = new Intent(this, AutomationService.class).setAction(AutomationService.ACTION_REFRESH);
             startForegroundService(intent);
         }
@@ -1252,9 +1333,11 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_PROTECTION && resultCode == RESULT_OK) setProtectedMode(true);
         if (requestCode == REQUEST_VPN && resultCode == RESULT_OK) enableAutomation();
         if (requestCode == REQUEST_VPN_MANUAL && resultCode == RESULT_OK)
             setManualMode(SecureStore.MANUAL_ON);
+        if (requestCode == REQUEST_RESTART_VPN && resultCode == RESULT_OK) requestRestartQueue();
         if (requestCode == REQUEST_FILE && resultCode == RESULT_OK && data != null && data.getData() != null) {
             Uri uri = data.getData();
             try (InputStream in = getContentResolver().openInputStream(uri)) {

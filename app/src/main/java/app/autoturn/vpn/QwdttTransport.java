@@ -21,17 +21,22 @@ import java.util.function.BooleanSupplier;
 /** Owns one native process; raw native output and configuration are never logged. */
 final class QwdttTransport implements AutoCloseable {
     private final Context context;
+    private final String attemptId;
     private final JSONObject state = new JSONObject();
     private Process process;
+    private BootstrapNetworkDns bootstrapDns;
     private volatile boolean ready, closed, vpnActive, outputEnded;
     private final String session = UUID.randomUUID().toString();
     private static final int CAPTCHA_NOTIFICATION = 103;
 
-    QwdttTransport(Context context) { this.context = context; }
+    QwdttTransport(Context context, String attemptId) { this.context = context; this.attemptId = attemptId; }
 
     JSONArray start(Profile profile, BooleanSupplier current) throws Exception {
         if (!current.getAsBoolean()) throw new InterruptedException("Connection cancelled");
         QwdttConfig config = QwdttConfig.parse(profile.config);
+        java.net.URI remote=new java.net.URI("udp://"+config.peer);
+        String peerIp=new EndpointResolver(context,current,context instanceof ProtectedVpnService).resolve(remote.getHost());
+        String resolvedPeer=(peerIp.contains(":")?"["+peerIp+"]":peerIp)+":"+remote.getPort();
         File binary = new File(context.getApplicationInfo().nativeLibraryDir, "libqwdtt.so");
         if (!binary.isFile()) throw new IllegalStateException("qWDTT requires Android arm64");
         int socksPort;
@@ -51,18 +56,21 @@ final class QwdttTransport implements AutoCloseable {
                     .put("user", "autoturn").put("password", password).put("phase", "starting");
             QwdttState.write(context, state);
         }
-        ProcessBuilder builder = new ProcessBuilder(binary.getAbsolutePath(),
-                "-peer", config.peer, "-listen", "127.0.0.1:" + config.port,
+        java.util.List<String> arguments = new java.util.ArrayList<>(java.util.Arrays.asList(binary.getAbsolutePath(),
+                "-peer", resolvedPeer, "-listen", "127.0.0.1:" + config.port,
                 "-n", String.valueOf(config.workers), "-device-id", deviceId(),
                 "-vk-auth", "anonymous", "-vk-anon-path", "vkcalls", "-captcha-mode", "wv",
                 "-mode", "socks", "-socks", "127.0.0.1:" + socksPort,
-                "-socks-auth", "-socks-user", "autoturn");
-        builder.environment().put("AUTOTURN_PASSWORD", config.password);
-        builder.environment().put("AUTOTURN_VK_HASHES", config.hashes);
-        builder.environment().put("AUTOTURN_SOCKS_PASSWORD", password);
+                "-socks-auth", "-socks-user", "autoturn"));
         File workingDirectory = new File(context.getCacheDir(), "qwdtt");
         if (!workingDirectory.isDirectory() && !workingDirectory.mkdirs())
             throw new IllegalStateException("qWDTT private directory unavailable");
+        bootstrapDns=new BootstrapNetworkDns(context,workingDirectory,session);
+        arguments.add("-go-dns");arguments.add(bootstrapDns.argument());
+        ProcessBuilder builder = new ProcessBuilder(arguments);
+        builder.environment().put("AUTOTURN_PASSWORD", config.password);
+        builder.environment().put("AUTOTURN_VK_HASHES", config.hashes);
+        builder.environment().put("AUTOTURN_SOCKS_PASSWORD", password);
         builder.directory(workingDirectory);
         builder.redirectErrorStream(true);
         process = builder.start();
@@ -148,7 +156,8 @@ final class QwdttTransport implements AutoCloseable {
                 StatusStore.set(context, StatusStore.ERROR, "qWDTT · транспорт остановлен");
                 context.startService(new Intent(context, AutomationService.class)
                         .setAction(AutomationService.ACTION_TUNNEL_FAILED)
-                        .putExtra(XrayVpnService.EXTRA_PROFILE_ID, profileId));
+                        .putExtra(XrayVpnService.EXTRA_PROFILE_ID, profileId)
+                        .putExtra(XrayVpnService.EXTRA_ATTEMPT_ID, attemptId));
             } catch (Exception ignored) { /* Guard's next probe also detects the loss. */ }
         }
     }
@@ -184,6 +193,7 @@ final class QwdttTransport implements AutoCloseable {
     }
 
     @Override public synchronized void close() {
+        if(bootstrapDns!=null){bootstrapDns.close();bootstrapDns=null;}
         closed = true;
         // Invalidate the challenge and probe immediately, before native shutdown can wait.
         if (session.equals(QwdttState.read(context).optString("session"))) {

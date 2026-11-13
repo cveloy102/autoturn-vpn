@@ -863,6 +863,10 @@ func formatGoDNSServers(servers []string) string {
 
 func setupGlobalResolver(arg string) {
 	arg = strings.TrimSpace(arg)
+	if strings.HasPrefix(arg, "network:") {
+		setupNetworkResolver(strings.TrimPrefix(arg, "network:"))
+		return
+	}
 	if goDNSIsDoH(arg) {
 		setupDoHResolver(arg, goDoHEndpointsForArg(arg))
 		return
