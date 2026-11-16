@@ -48,6 +48,11 @@ final class ProfileImporter {
 
     private static Profile parseHysteria2(String value) {
         Uri uri = Uri.parse(value);
+        String authority = uri.getEncodedAuthority();
+        String hostPort = authority == null ? "" : authority.substring(authority.lastIndexOf('@') + 1);
+        if (hostPort.indexOf(',') >= 0 || (hostPort.lastIndexOf(':') >= 0 &&
+                hostPort.substring(hostPort.lastIndexOf(':') + 1).contains("-")))
+            throw new IllegalArgumentException("Диапазоны портов Hysteria 2 пока не поддерживаются");
         try { Hysteria2Config.outbound(value); }
         catch (Exception e) { throw new IllegalArgumentException(e.getMessage()); }
         return new Profile(cleanName(uri.getFragment(), "Hysteria 2"), Profile.HYSTERIA2, value);
@@ -73,6 +78,34 @@ final class ProfileImporter {
         }
         if (type == null) throw new IllegalArgumentException("В JSON нет VLESS + REALITY или Hysteria 2");
         return new Profile(cleanName(nameHint, Profile.HYSTERIA2.equals(type) ? "Hysteria 2 JSON" : "Reality JSON"), type, value);
+    }
+
+    static final String BUNDLE_KEY = "autoturnProfiles";
+
+    /** Returns null when the text is not an AutoTurn export. */
+    static java.util.List<Profile> parseBundle(String input) throws Exception {
+        String value = input.trim();
+        if (!value.startsWith("{") || !value.contains(BUNDLE_KEY)) return null;
+        JSONArray items = new JSONObject(value).optJSONArray(BUNDLE_KEY);
+        if (items == null) return null;
+        if (items.length() > 200) throw new IllegalArgumentException("Слишком много профилей");
+        java.util.List<Profile> result = new java.util.ArrayList<>();
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject item = items.getJSONObject(i);
+            // Every profile passes the same validation as an ordinary import.
+            Profile checked = parse(item.optString("name"), item.getString("config"));
+            result.add(new Profile(java.util.UUID.randomUUID().toString(), cleanName(item.optString("name"), checked.name),
+                    checked.type, checked.config, item.optBoolean("lastResort", checked.lastResort),
+                    item.optBoolean("enabled", true)));
+        }
+        return result;
+    }
+
+    static String exportBundle(java.util.List<Profile> profiles) throws Exception {
+        JSONArray items = new JSONArray();
+        for (Profile p : profiles) items.put(new JSONObject().put("name", p.name).put("type", p.type)
+                .put("config", p.config).put("lastResort", p.lastResort).put("enabled", p.enabled));
+        return new JSONObject().put("autoturn", 1).put(BUNDLE_KEY, items).toString(2);
     }
 
     private static String cleanName(String hint, String fallback) {

@@ -170,7 +170,7 @@ public final class XrayVpnService extends VpnService {
             stopTunnel();
             try { if (!currentRequest(id, commandGeneration)) return; }
             catch (Exception ignored) { return; }
-            Log.e(TAG, "Could not start " + protocolName + " tunnel", e);
+            Log.e(TAG, "Could not start " + protocolName + " tunnel: " + e.getClass().getSimpleName());
             StatusStore.set(this, StatusStore.ERROR, protocolName + " не подключился. Проверьте профиль и сеть.");
             getSystemService(NotificationManager.class).notify(101, notification("Ошибка " + protocolName));
             startService(new Intent(this, AutomationService.class)

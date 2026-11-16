@@ -559,6 +559,21 @@ final class SecureStore {
         if (AppPolicy.EXCLUDE.equals(appMode)) selectedPackages.addAll(excludedPackages);
     }
 
+    /** Last-resort recovery when the encrypted settings can no longer be read. Deletes all profiles. */
+    static void resetAll(Context context) throws Exception {
+        synchronized (WRITE_LOCK) {
+            File dir = context.getApplicationContext().getFilesDir();
+            new File(dir, FILE_NAME).delete();
+            new File(dir, FILE_NAME + ".tmp").delete();
+            KeyStore keys = KeyStore.getInstance("AndroidKeyStore");
+            keys.load(null);
+            if (keys.containsAlias(KEY_ALIAS)) keys.deleteEntry(KEY_ALIAS);
+            // Endpoint caches are encrypted with the same key and are useless without it.
+            new File(dir, "endpoint-cache.enc").delete();
+            new File(dir, "endpoint-cache-ordinary.enc").delete();
+        }
+    }
+
     static String normalizeTheme(String value) {
         // All previous appearances were dark. Unknown or removed values migrate to dark.
         return THEME_LIGHT.equals(value) || THEME_SYSTEM.equals(value) ? value : THEME_DARK;

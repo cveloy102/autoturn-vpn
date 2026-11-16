@@ -50,6 +50,8 @@ public final class AutomationService extends Service {
     private ConnectivityManager.NetworkCallback callback;
     private ConnectivityManager.NetworkCallback vpnCallback;
     private volatile String ssid = "";
+    // The Wi-Fi network the current SSID was read from; another network's loss must not clear it.
+    private volatile Network ssidNetwork;
     private String runningId = "";
     private String runningType = "";
     private String runningPolicy = "";
@@ -106,7 +108,10 @@ public final class AutomationService extends Service {
                 .addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build();
         callback = new ConnectivityManager.NetworkCallback(ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO) {
             @Override public void onAvailable(Network network) { schedule(1000); }
-            @Override public void onLost(Network network) { ssid = ""; schedule(500); }
+            @Override public void onLost(Network network) {
+                if (network.equals(ssidNetwork)) { ssid = ""; ssidNetwork = null; }
+                schedule(500);
+            }
             @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
                 Object info = caps.getTransportInfo();
                 if (info instanceof WifiInfo) {
@@ -115,7 +120,11 @@ public final class AutomationService extends Service {
                         if (name.length() > 1 && name.startsWith("\"") && name.endsWith("\""))
                             name = name.substring(1, name.length() - 1);
                         ssid = name;
-                    } else ssid = "";
+                        ssidNetwork = network;
+                    } else if (ssidNetwork == null || network.equals(ssidNetwork)) {
+                        ssid = "";
+                        ssidNetwork = null;
+                    }
                 }
                 schedule(1000);
             }
@@ -455,8 +464,16 @@ public final class AutomationService extends Service {
                 return;
             }
             activeProbe = probes.submit(() -> {
-                ConnectionProbe.Result result = qwdtt ? ConnectionProbe.checkQwdtt(this, connectivity, probeProfileId, confirmation) :
-                        ConnectionProbe.check(this, connectivity, confirmation);
+                ConnectionProbe.Result outcome;
+                try {
+                    outcome = qwdtt ? ConnectionProbe.checkQwdtt(this, connectivity, probeProfileId, confirmation) :
+                            ConnectionProbe.check(this, connectivity, confirmation);
+                } catch (Throwable failure) {
+                    // An unexpected error must not leave activeProbe set forever, which would stop all checks.
+                    Log.w(TAG, "Connection probe failed: " + failure.getClass().getSimpleName());
+                    outcome = ConnectionProbe.Result.FAILED;
+                }
+                final ConnectionProbe.Result result = outcome;
                 enqueue(() -> finishHealth(result, probeGeneration, probeProfileId));
             });
         } catch (Exception e) {

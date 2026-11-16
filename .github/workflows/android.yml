@@ -2,7 +2,7 @@ name: Android build and lint
 
 on:
   push:
-    branches: [main, 'codex/**']
+    branches: [main, 'codex/**', 'claude/**']
   pull_request:
   workflow_dispatch:
 
@@ -32,8 +32,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
-      - name: Build APK and run lint
-        run: sh ./gradlew :app:assembleDebug :app:lintDebug --no-daemon
+      - name: Unit tests, build APKs and run lint
+        run: sh ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleStaging :app:lintDebug --no-daemon
+      - name: Upload side-by-side test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: autoturn-test-apk
+          path: app/build/outputs/apk/staging/*.apk
+          if-no-files-found: error
       - name: Upload lint reports
         if: always()
         uses: actions/upload-artifact@v4

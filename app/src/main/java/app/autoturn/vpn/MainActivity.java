@@ -55,6 +55,8 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_PROTECTION = 14;
     private static final int REQUEST_RESTART_VPN = 15;
     private static final int REQUEST_LOCATION = 12;
+    private static final int REQUEST_EXPORT = 16;
+    private static final int REQUEST_NOTIFICATIONS = 17;
     private int BG;
     private int CARD;
     private int NEON;
@@ -119,14 +121,27 @@ public final class MainActivity extends Activity {
                 System.arraycopy(positions, 0, scrollPositions, 0, 3);
         }
         if (store == null) {
-            new AlertDialog.Builder(this).setTitle("Не удалось открыть настройки")
+            AlertDialog failed = new AlertDialog.Builder(this).setTitle("Не удалось открыть настройки")
                     .setMessage("Зашифрованные настройки недоступны. Приложение не будет перезаписывать их автоматически.")
-                    .setPositiveButton("Закрыть", (d, w) -> finish()).show();
+                    .setCancelable(false)
+                    .setPositiveButton("Закрыть", (d, w) -> finish())
+                    .setNegativeButton("Сбросить…", null).create();
+            failed.show();
+            failed.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v ->
+                    new AlertDialog.Builder(this).setTitle("Сбросить все настройки?")
+                            .setMessage("Будут безвозвратно удалены все профили, домашние сети и параметры. " +
+                                    "Сделайте это, только если настройки не открываются совсем.")
+                            .setNegativeButton("Отмена", null)
+                            .setPositiveButton("Удалить всё", (confirm, which) -> {
+                                try { SecureStore.resetAll(this); recreate(); }
+                                catch (Exception e) { finish(); }
+                            }).show());
             return;
         }
         applyTheme();
         updateUi = new UpdateUi(this);
         render();
+        askNotificationPermissionOnce();
     }
 
     @Override protected void onStart() {
@@ -171,6 +186,16 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed() {
         if (page != PAGE_HOME) navigateTo(PAGE_HOME);
         else super.onBackPressed();
+    }
+
+    // Android 13+ hides foreground-service and CAPTCHA notifications until this is granted.
+    private void askNotificationPermissionOnce() {
+        if (Build.VERSION.SDK_INT < 33 ||
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return;
+        android.content.SharedPreferences prefs = getSharedPreferences("release_notes", MODE_PRIVATE);
+        if (prefs.getBoolean("notifications_asked", false)) return;
+        prefs.edit().putBoolean("notifications_asked", true).apply();
+        requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
     }
 
     private void navigateTo(int destination) {
@@ -691,6 +716,12 @@ public final class MainActivity extends Activity {
         root.addView(action("+ Добавить профиль  ↗", true, v -> openFile()));
         gap(root, 10);
         root.addView(action("Вставить ссылку →", false, v -> importClipboard()));
+        gap(root, 12);
+        gap(root, 10);
+        Button export = action("Экспорт профилей →", false, v -> exportProfiles());
+        export.setEnabled(!store.profiles.isEmpty());
+        export.setAlpha(export.isEnabled() ? 1f : .5f);
+        root.addView(export);
         gap(root, 12);
         root.addView(label(".conf / .json / .txt\nVLESS / Hysteria 2 / AmneziaWG / qWDTT\nqWDTT добавляется как последний резерв.", 12, MUTED, false));
     }
@@ -1322,8 +1353,52 @@ public final class MainActivity extends Activity {
         importText("", value.toString());
     }
 
+    private void exportProfiles() {
+        if (store.profiles.isEmpty()) return;
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Экспорт профилей")
+                .setMessage("Файл будет содержать ключи и пароли открытым текстом. " +
+                        "Храните его в надёжном месте и удалите после переноса.")
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Сохранить файл", (d, w) -> {
+                    Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    intent.setType("application/json");
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.putExtra(Intent.EXTRA_TITLE, "autoturn-profiles.json");
+                    startActivityForResult(intent, REQUEST_EXPORT);
+                }).show();
+        TerminalUi.styleDialog(dialog, palette);
+    }
+
+    private void writeExport(Uri uri) {
+        try (java.io.OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+            if (out == null) throw new IllegalStateException();
+            SecureStore latest = new SecureStore(this);
+            out.write(ProfileImporter.exportBundle(latest.orderedProfiles()).getBytes(StandardCharsets.UTF_8));
+            android.widget.Toast.makeText(this, "Профили сохранены", android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Exception e) { error("Не удалось сохранить файл"); }
+    }
+
+    private String displayName(Uri uri) {
+        try (android.database.Cursor cursor = getContentResolver().query(uri,
+                new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) return cursor.getString(0);
+        } catch (Exception ignored) { }
+        return uri.getLastPathSegment();
+    }
+
     private void importText(String name, String content) {
         try {
+            java.util.List<Profile> bundle = ProfileImporter.parseBundle(content);
+            if (bundle != null) {
+                if (bundle.isEmpty()) throw new IllegalArgumentException();
+                // Parse everything first; add only if the whole file is valid.
+                for (Profile p : bundle) store.add(p);
+                refreshAutomation();
+                render();
+                android.widget.Toast.makeText(this, "Добавлено профилей: " + bundle.size(),
+                        android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
             Profile profile = ProfileImporter.parse(name, content);
             store.add(profile);
             refreshAutomation();
@@ -1338,6 +1413,8 @@ public final class MainActivity extends Activity {
         if (requestCode == REQUEST_VPN_MANUAL && resultCode == RESULT_OK)
             setManualMode(SecureStore.MANUAL_ON);
         if (requestCode == REQUEST_RESTART_VPN && resultCode == RESULT_OK) requestRestartQueue();
+        if (requestCode == REQUEST_EXPORT && resultCode == RESULT_OK && data != null && data.getData() != null)
+            writeExport(data.getData());
         if (requestCode == REQUEST_FILE && resultCode == RESULT_OK && data != null && data.getData() != null) {
             Uri uri = data.getData();
             try (InputStream in = getContentResolver().openInputStream(uri)) {
@@ -1349,7 +1426,7 @@ public final class MainActivity extends Activity {
                     if (out.size() + n > 1024 * 1024) throw new IllegalArgumentException();
                     out.write(buffer, 0, n);
                 }
-                String name = uri.getLastPathSegment();
+                String name = displayName(uri);
                 importText(name == null ? "Импорт" : name, out.toString(StandardCharsets.UTF_8.name()));
             } catch (Exception e) { error("Не удалось прочитать файл или он слишком большой"); }
         }

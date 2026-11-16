@@ -27,13 +27,18 @@ final class StatusStore {
         try (FileOutputStream mutex = new FileOutputStream(new File(context.getFilesDir(), FILE + ".lock"));
              java.nio.channels.FileLock ignoredLock = mutex.getChannel().lock()) {
             AtomicFile file = new AtomicFile(new File(context.getFilesDir(), FILE));
-            FileOutputStream out = file.startWrite();
-            try {
-                byte[] data = new JSONObject().put("state", state).put("detail", detail)
-                        .toString().getBytes(StandardCharsets.UTF_8);
-                out.write(data);
-                file.finishWrite(out);
-            } catch (Exception e) { file.failWrite(out); }
+            byte[] data = new JSONObject().put("state", state).put("detail", detail)
+                    .toString().getBytes(StandardCharsets.UTF_8);
+            boolean unchanged = false;
+            try { unchanged = java.util.Arrays.equals(file.readFully(), data); } catch (Exception ignored) { }
+            // Periodic health checks repeat the same status; avoid an fsync for each repeat.
+            if (!unchanged) {
+                FileOutputStream out = file.startWrite();
+                try {
+                    out.write(data);
+                    file.finishWrite(out);
+                } catch (Exception e) { file.failWrite(out); }
+            }
         } catch (Exception ignored) { }
         Intent intent = new Intent(ACTION_CHANGED).setPackage(context.getPackageName());
         context.sendBroadcast(intent);

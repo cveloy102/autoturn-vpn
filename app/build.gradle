@@ -6,7 +6,7 @@ android {
 
     defaultConfig {
         applicationId 'app.autoturn.vpn'
-        minSdk 29
+        minSdk 31
         targetSdk 36
         versionCode 31
         versionName '1.7.0'
@@ -20,6 +20,17 @@ android {
 
     buildFeatures { buildConfig true; aidl true }
 
+    buildTypes {
+        // Side-by-side test build: its own application id (and therefore its own encrypted
+        // profiles), so the working AutoTurn installation is never touched or overwritten.
+        staging {
+            initWith debug
+            applicationIdSuffix '.test'
+            versionNameSuffix '-test'
+            matchingFallbacks = ['debug']
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -31,6 +42,8 @@ android {
 }
 
 dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
     implementation project(':amneziawg-tunnel')
     implementation files('libs/libXray.aar')
     androidTestCompileOnly files('../.sdk/platforms/android-37.0/optional/android.test.base.jar',
