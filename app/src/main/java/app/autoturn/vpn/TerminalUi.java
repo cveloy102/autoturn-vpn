@@ -41,7 +41,10 @@ final class TerminalUi {
         word.setSpan(new android.text.style.ForegroundColorSpan(palette.accent), 4, 9, 0);
         brand.setText(word);
         row.addView(brand, brandSize);
-        TextView edition = text(context, "HL100\nVPN / CLIENT", 10, palette.muted);
+        TextView edition = text(context, "", 10, palette.muted);
+        android.text.SpannableString signature = new android.text.SpannableString("powered by\nLENCHA_");
+        signature.setSpan(new android.text.style.ForegroundColorSpan(palette.accent), 11, 18, 0);
+        edition.setText(signature);
         edition.setGravity(Gravity.END);
         row.addView(edition);
         root.addView(row);
