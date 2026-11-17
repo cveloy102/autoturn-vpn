@@ -61,6 +61,8 @@ public final class AutomationService extends Service {
     private boolean verified;
     private boolean hadHealthyConnection;
     private int consecutiveTrafficFailures;
+    // Consecutive successful checks; a long healthy run slows checks down (see HealthSchedule).
+    private int healthyStreak;
     private int failedProfiles;
     private int generation;
     private int observedGeneration;
@@ -107,9 +109,13 @@ public final class AutomationService extends Service {
         NetworkRequest request = new NetworkRequest.Builder()
                 .addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build();
         callback = new ConnectivityManager.NetworkCallback(ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO) {
-            @Override public void onAvailable(Network network) { schedule(1000); }
+            @Override public void onAvailable(Network network) {
+                enqueue(AutomationService.this::physicalNetworkChanged);
+                schedule(1000);
+            }
             @Override public void onLost(Network network) {
                 if (network.equals(ssidNetwork)) { ssid = ""; ssidNetwork = null; }
+                enqueue(AutomationService.this::physicalNetworkChanged);
                 schedule(500);
             }
             @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
@@ -254,8 +260,8 @@ public final class AutomationService extends Service {
                         "Трафик заблокирован · все профили отключены");
                 else {
                     stopCurrent();
-                    StatusStore.set(this, StatusStore.ERROR, store.profiles.isEmpty() ? "Выберите профиль и домашний Wi‑Fi" :
-                            candidate == null ? "Все профили отключены · разрешите подключение в Профилях" : "Выберите домашний Wi‑Fi");
+                    StatusStore.set(this, StatusStore.ERROR, store.profiles.isEmpty() ? "Выберите профиль и домашний Wi-Fi" :
+                            candidate == null ? "Все профили отключены · разрешите подключение в Профилях" : "Выберите домашний Wi-Fi");
                 }
                 clearHealth();
                 guardProfileId = "";
@@ -267,7 +273,7 @@ public final class AutomationService extends Service {
                 stopCurrent();
                 clearHealth();
                 guardProfileId = "";
-                StatusStore.set(this, StatusStore.OFF, "Домашний Wi‑Fi · VPN выключен");
+                StatusStore.set(this, StatusStore.OFF, "Домашний Wi-Fi · VPN выключен");
                 updateNotification("VPN выключен дома");
                 return;
             }
@@ -298,7 +304,7 @@ public final class AutomationService extends Service {
             if (profile.id.equals(runningId) && policy.equals(runningPolicy) &&
                     !StatusStore.ERROR.equals(StatusStore.state(this))) {
                 if (guardEnabled(store) && !healthScheduled)
-                    scheduleHealth(verified ? CHECK_INTERVAL_MS : 1000);
+                    scheduleHealth(verified ? HealthSchedule.healthyInterval(Math.max(1, healthyStreak)) : 1000);
                 return;
             }
             stopCurrent(store.protectedMode);
@@ -308,6 +314,8 @@ public final class AutomationService extends Service {
             StatusStore.set(this, StatusStore.CONNECTING,
                     SecureStore.MANUAL_ON.equals(store.manualMode) ? "Включаем VPN вручную" :
                     atHome ? "Включаем вручную для домашней сети" :
+                            locationHidesHome(store) ? "Геолокация выключена · дом не определить, подключаем VPN" :
+                            ssid.isEmpty() && !hasPhysicalWifi() ? "Мобильная сеть · подключаем VPN" :
                             ssid.isEmpty() ? "Сеть не определена · подключаем VPN" :
                                     "Вне домашней сети · подключаемся");
             if (store.protectedMode) {
@@ -409,9 +417,42 @@ public final class AutomationService extends Service {
                 .putExtra("blockedDetail", detail));
     }
 
+    /**
+     * Android hides the Wi-Fi name while location is off, so "home" cannot be recognised and the
+     * VPN (correctly) stays on. True when that is the reason, so the status can say so.
+     */
+    private boolean locationHidesHome(SecureStore store) {
+        if (!ssid.isEmpty() || store.homeSsids.isEmpty() || SecureStore.MANUAL_ON.equals(store.manualMode)) return false;
+        try {
+            android.location.LocationManager location = getSystemService(android.location.LocationManager.class);
+            if (location == null || location.isLocationEnabled()) return false;
+        } catch (RuntimeException ignored) { return false; }
+        return hasPhysicalWifi();
+    }
+
+    /** True when a real (non-VPN) Wi-Fi network is connected. */
+    private boolean hasPhysicalWifi() {
+        try {
+            for (Network network : connectivity.getAllNetworks()) {
+                NetworkCapabilities caps = connectivity.getNetworkCapabilities(network);
+                if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                        !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return true;
+            }
+        } catch (RuntimeException ignored) { }
+        return false;
+    }
+
+    // Worker thread. Wi-Fi appearing or disappearing is when a tunnel most often breaks:
+    // return to fast checks and look again soon instead of waiting out a slow interval.
+    private void physicalNetworkChanged() {
+        healthyStreak = 0;
+        if (!runningId.isEmpty() && verified && healthScheduled) scheduleHealth(3000);
+    }
+
     private void clearHealth() {
         handler.removeCallbacks(healthTick);
         healthScheduled = false;
+        healthyStreak = 0;
         verified = false;
         hadHealthyConnection = false;
         consecutiveTrafficFailures = 0;
@@ -487,6 +528,7 @@ public final class AutomationService extends Service {
         // cannot mark a replacement tunnel healthy, fail it, or re-enable a manually stopped VPN.
         if (probeGeneration != generation || !probeProfileId.equals(runningId)) return;
         activeProbe = null;
+        if (result != ConnectionProbe.Result.HEALTHY) healthyStreak = 0;
         try {
             SecureStore store = new SecureStore(this);
             if (!guardEnabled(store) || !wantsVpn(store) || !runningId.equals(store.activeId)) {
@@ -501,8 +543,9 @@ public final class AutomationService extends Service {
                 hadHealthyConnection = true;
                 failedProfiles = 0;
                 pauseUntil = 0;
-                StatusStore.set(this, StatusStore.ON, "VPN проверен · " + store.activeProfile().name);
-                scheduleHealth(CHECK_INTERVAL_MS);
+                StatusStore.set(this, StatusStore.ON, "VPN проверен · " + store.activeProfile().name +
+                        (locationHidesHome(store) ? " · включите геолокацию, чтобы узнавать дом" : ""));
+                scheduleHealth(HealthSchedule.healthyInterval(++healthyStreak));
             } else if (result == ConnectionProbe.Result.NO_NETWORK) {
                 consecutiveTrafficFailures = 0;
                 StatusStore.set(this, StatusStore.CONNECTING, "Нет сети · ждём восстановления");
@@ -598,6 +641,7 @@ public final class AutomationService extends Service {
     private void stopCurrent(boolean keepProtection) {
         runningAttemptId = "";
         consecutiveTrafficFailures = 0;
+        healthyStreak = 0;
         generation++;
         if (activeProbe != null) {
             activeProbe.cancel(true);

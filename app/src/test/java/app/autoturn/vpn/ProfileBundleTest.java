@@ -23,6 +23,17 @@ public class ProfileBundleTest {
         assertNotEquals("imported profiles get fresh ids", source.id, copy.id);
     }
 
+    @Test public void duplicatesAreSkipped() {
+        Profile existing = new Profile("a", "Old", Profile.QWDTT, LINK, true, true);
+        Profile same = new Profile("b", "Copy", Profile.QWDTT, LINK + "  ", true, true);
+        Profile other = new Profile("c", "New", Profile.QWDTT, LINK.replace("Router", "Other"), true, true);
+        Profile repeated = new Profile("d", "New again", Profile.QWDTT, other.config, true, true);
+        List<Profile> fresh = ProfileImporter.withoutDuplicates(Arrays.asList(existing),
+                Arrays.asList(same, other, repeated));
+        assertEquals(1, fresh.size());
+        assertEquals("c", fresh.get(0).id);
+    }
+
     @Test public void ordinaryTextIsNotABundle() throws Exception {
         assertNull(ProfileImporter.parseBundle(LINK));
         assertNull(ProfileImporter.parseBundle("{\"outbounds\":[]}"));

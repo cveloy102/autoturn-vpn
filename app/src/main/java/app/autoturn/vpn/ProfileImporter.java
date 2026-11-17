@@ -101,6 +101,15 @@ final class ProfileImporter {
         return result;
     }
 
+    /** Drops profiles whose connection (type + config) already exists or repeats inside the file. */
+    static java.util.List<Profile> withoutDuplicates(java.util.List<Profile> existing, java.util.List<Profile> incoming) {
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (Profile p : existing) seen.add(p.type + "\n" + p.config.trim());
+        java.util.List<Profile> result = new java.util.ArrayList<>();
+        for (Profile p : incoming) if (seen.add(p.type + "\n" + p.config.trim())) result.add(p);
+        return result;
+    }
+
     static String exportBundle(java.util.List<Profile> profiles) throws Exception {
         JSONArray items = new JSONArray();
         for (Profile p : profiles) items.put(new JSONObject().put("name", p.name).put("type", p.type)

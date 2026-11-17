@@ -242,6 +242,21 @@ final class SecureStore {
         save();
     }
 
+    /** Adds several profiles with a single save, so a failed write adds none of them. */
+    synchronized void addAll(List<Profile> added) throws Exception {
+        int before = profiles.size();
+        String previousActive = activeId, previousPrimary = primaryId;
+        profiles.addAll(added);
+        if (activeId.isEmpty() && !added.isEmpty()) activeId = added.get(0).id;
+        if (primaryId.isEmpty() && !added.isEmpty()) primaryId = added.get(0).id;
+        try { save(); }
+        catch (Exception e) {
+            while (profiles.size() > before) profiles.remove(profiles.size() - 1);
+            activeId = previousActive; primaryId = previousPrimary;
+            throw e;
+        }
+    }
+
     synchronized void rename(String id, String name) throws Exception {
         for (int i = 0; i < profiles.size(); i++) {
             Profile old = profiles.get(i);

@@ -56,7 +56,6 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_RESTART_VPN = 15;
     private static final int REQUEST_LOCATION = 12;
     private static final int REQUEST_EXPORT = 16;
-    private static final int REQUEST_NOTIFICATIONS = 17;
     private int BG;
     private int CARD;
     private int NEON;
@@ -141,7 +140,6 @@ public final class MainActivity extends Activity {
         applyTheme();
         updateUi = new UpdateUi(this);
         render();
-        askNotificationPermissionOnce();
     }
 
     @Override protected void onStart() {
@@ -186,16 +184,6 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed() {
         if (page != PAGE_HOME) navigateTo(PAGE_HOME);
         else super.onBackPressed();
-    }
-
-    // Android 13+ hides foreground-service and CAPTCHA notifications until this is granted.
-    private void askNotificationPermissionOnce() {
-        if (Build.VERSION.SDK_INT < 33 ||
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return;
-        android.content.SharedPreferences prefs = getSharedPreferences("release_notes", MODE_PRIVATE);
-        if (prefs.getBoolean("notifications_asked", false)) return;
-        prefs.edit().putBoolean("notifications_asked", true).apply();
-        requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
     }
 
     private void navigateTo(int destination) {
@@ -392,7 +380,7 @@ public final class MainActivity extends Activity {
         boolean on = StatusStore.ON.equals(state);
         boolean connecting = StatusStore.CONNECTING.equals(state);
         boolean blocked = StatusStore.BLOCKED.equals(state);
-        boolean atHome = StatusStore.OFF.equals(state) && detail.startsWith("Домашний Wi‑Fi");
+        boolean atHome = StatusStore.OFF.equals(state) && detail.startsWith("Домашний Wi");
         String headline = blocked ? "Защита активна." : on ? "На связи." : atHome ? "Вы дома." : connecting ?
                 "Подключаемся." : StatusStore.ERROR.equals(state) ? "Нет связи." : "VPN выключен.";
         terminalEyebrow(root, "[ 01 / CONNECTION ]");
@@ -537,7 +525,7 @@ public final class MainActivity extends Activity {
         boolean connecting = StatusStore.CONNECTING.equals(state);
         boolean error = StatusStore.ERROR.equals(state);
         boolean blocked = StatusStore.BLOCKED.equals(state);
-        boolean atHome = StatusStore.OFF.equals(state) && detail.startsWith("Домашний Wi‑Fi");
+        boolean atHome = StatusStore.OFF.equals(state) && detail.startsWith("Домашний Wi");
         String headline = blocked ? "Защита активна." : on ? "На связи." : atHome ? "Вы дома." : connecting ?
                 "Подключаемся." : error ? "Нет связи." : "VPN выключен.";
         if (!terminalHeadline.getText().toString().equals(headline + "_"))
@@ -716,7 +704,6 @@ public final class MainActivity extends Activity {
         root.addView(action("+ Добавить профиль  ↗", true, v -> openFile()));
         gap(root, 10);
         root.addView(action("Вставить ссылку →", false, v -> importClipboard()));
-        gap(root, 12);
         gap(root, 10);
         Button export = action("Экспорт профилей →", false, v -> exportProfiles());
         export.setEnabled(!store.profiles.isEmpty());
@@ -1391,19 +1378,44 @@ public final class MainActivity extends Activity {
             java.util.List<Profile> bundle = ProfileImporter.parseBundle(content);
             if (bundle != null) {
                 if (bundle.isEmpty()) throw new IllegalArgumentException();
-                // Parse everything first; add only if the whole file is valid.
-                for (Profile p : bundle) store.add(p);
+                // The whole file was validated by parseBundle; save it in one write (all or nothing).
+                java.util.List<Profile> fresh = ProfileImporter.withoutDuplicates(store.profiles, bundle);
+                int skipped = bundle.size() - fresh.size();
+                int unsupported = 0;
+                if (!qwdttSupported()) {
+                    java.util.List<Profile> runnable = new java.util.ArrayList<>();
+                    for (Profile p : fresh) if (Profile.QWDTT.equals(p.type)) unsupported++; else runnable.add(p);
+                    fresh = runnable;
+                }
+                if (!fresh.isEmpty()) store.addAll(fresh);
                 refreshAutomation();
                 render();
-                android.widget.Toast.makeText(this, "Добавлено профилей: " + bundle.size(),
-                        android.widget.Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(this, "Добавлено профилей: " + fresh.size() +
+                                (skipped > 0 ? " · уже были: " + skipped : "") +
+                                (unsupported > 0 ? " · qWDTT не поддерживается: " + unsupported : ""),
+                        android.widget.Toast.LENGTH_LONG).show();
                 return;
             }
             Profile profile = ProfileImporter.parse(name, content);
+            if (Profile.QWDTT.equals(profile.type) && !qwdttSupported())
+                throw new IllegalArgumentException("qWDTT работает только на 64-битных телефонах (arm64)");
             store.add(profile);
             refreshAutomation();
             render();
+        } catch (IllegalArgumentException e) {
+            // AutoTurn's own importer messages are Russian and written for the user (e.g. unsupported
+            // Hysteria 2 port ranges). Library messages (NumberFormatException etc.) may quote parts
+            // of the profile, so anything else gets the generic text.
+            String message = e.getMessage();
+            boolean ours = !(e instanceof NumberFormatException) && message != null &&
+                    message.length() <= 200 && message.matches("(?s).*[А-Яа-яЁё].*");
+            error(ours ? message : "Не удалось прочитать профиль. Проверьте формат файла.");
         } catch (Exception e) { error("Не удалось прочитать профиль. Проверьте формат файла."); }
+    }
+
+    // The bundled qWDTT client (libqwdtt.so) is built for arm64-v8a only.
+    private static boolean qwdttSupported() {
+        return java.util.Arrays.asList(Build.SUPPORTED_ABIS).contains("arm64-v8a");
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {

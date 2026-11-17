@@ -6,7 +6,7 @@ android {
 
     defaultConfig {
         applicationId 'app.autoturn.vpn'
-        minSdk 31
+        minSdk 29
         targetSdk 36
         versionCode 31
         versionName '1.7.0'
