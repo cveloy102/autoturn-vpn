@@ -1,8 +1,0 @@
-/tproxy-server
-/config.json
-/profiles.json
-/websites/
-/coverage.out
-/*.test
-/*.prof
-.DS_Store
