@@ -6,7 +6,7 @@ android {
 
     defaultConfig {
         applicationId 'app.autoturn.vpn'
-        minSdk 29
+        minSdk 31
         targetSdk 36
         versionCode 31
         versionName '1.7.0'
@@ -21,6 +21,14 @@ android {
     buildFeatures { buildConfig true; aidl true }
 
     buildTypes {
+        // Published APK: not debuggable, signed with the SAME original key as every earlier
+        // release, so the in-app updater and Android install it over the existing app and keep
+        // the encrypted profiles. Without the original key the APK stays unsigned on purpose.
+        release {
+            debuggable false
+            minifyEnabled false
+            if (file('../.android/debug.keystore').exists()) signingConfig signingConfigs.debug
+        }
         // Side-by-side test build: its own application id (and therefore its own encrypted
         // profiles), so the working AutoTurn installation is never touched or overwritten.
         staging {

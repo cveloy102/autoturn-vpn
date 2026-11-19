@@ -33,7 +33,7 @@ jobs:
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
       - name: Unit tests, build APKs and run lint
-        run: sh ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleStaging :app:lintDebug --no-daemon
+        run: sh ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleStaging :app:assembleRelease :app:lintDebug --no-daemon
       - name: Upload side-by-side test APK
         uses: actions/upload-artifact@v4
         with:
