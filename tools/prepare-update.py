@@ -1,6 +1,6 @@
 """Package an already-built APK and updater metadata for a GitHub Release.
 
-Run after assembleRelease using the original signing key (non-debuggable APK). Never uploads signing keys.
+Run after assembleDebug using the original signing key. Never uploads signing keys.
 """
 import hashlib
 import json
@@ -8,7 +8,7 @@ from pathlib import Path
 import shutil
 
 root = Path(__file__).resolve().parents[1]
-directory = root / "app/build/outputs/apk/release"
+directory = root / "app/build/outputs/apk/debug"
 listing = json.loads((directory / "output-metadata.json").read_text(encoding="utf-8"))
 element, = listing["elements"]
 version = element["versionName"]
