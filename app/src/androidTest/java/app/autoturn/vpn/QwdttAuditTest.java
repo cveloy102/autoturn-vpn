@@ -142,7 +142,12 @@ public final class QwdttAuditTest extends InstrumentationTestCase {
         for (Profile p : targets()) {
             configure(p, AppPolicy.ALL); start(p);
             JSONObject r = probe(true, true, p.name + " egress-payload");
-            assertEquals("Exit IP is the authorized VPS", "45.67.202.147", r.optString("egress"));
+            // The expected exit IP is passed at run time (-e expectedEgress <ip>) and never stored in Git.
+            String expected = ((android.test.InstrumentationTestRunner) getInstrumentation()).getArguments()
+                    .getString("expectedEgress");
+            if (expected != null && !expected.isEmpty())
+                assertEquals("Exit IP is the authorized VPS", expected, r.optString("egress"));
+            else assertFalse("Exit IP was reported", r.optString("egress").isEmpty());
             assertEquals("Full 256 KiB TLS payload", 262144, r.optInt("payloadBytes"));
         }
     }
