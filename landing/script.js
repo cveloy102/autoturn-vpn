@@ -1,2 +1,22 @@
-const shots={home:['01','Один экран.<br>Весь контроль.','Текущая сеть, активный профиль и режим подключения. Ручное управление доступно в любой момент.','Главный экран AutoTurn'],profiles:['02','Твои профили.<br>Твой выбор.','Импорт из файла или по ссылке. Выбери профиль для подключения и настрой резервные.','Экран профилей AutoTurn'], 'app-routing':['03','Каждому приложению —<br>свой маршрут.','Направляй через VPN все приложения, только выбранные или все кроме выбранных.','Маршрутизация приложений AutoTurn'],settings:['04','Настрой один раз.<br>Пользуйся каждый день.','Домашняя Wi-Fi сеть, оформление и настройки подключения собраны в одном месте.','Настройки AutoTurn']};
-document.querySelectorAll('[data-shot]').forEach(button=>button.addEventListener('click',()=>{const key=button.dataset.shot;const [number,title,copy,alt]=shots[key];document.querySelectorAll('[data-shot]').forEach(item=>{item.classList.toggle('selected',item===button);item.setAttribute('aria-pressed',String(item===button));});const img=document.getElementById('gallery-image');img.src=`images/${key}.png`;img.alt=alt;document.getElementById('shot-number').textContent=`SCREEN / ${number}`;document.getElementById('shot-title').innerHTML=title;document.getElementById('shot-copy').textContent=copy;}));
+// Screen gallery: swaps the phone screenshot and its caption.
+const shots = {
+  'home-online': ['Статус видно сразу', 'Крупная надпись говорит, что происходит: «Вы дома», «Подключаемся», «На связи». Индикатор двигается, пока VPN подключается и работает.', 'Главный экран AutoTurn 2.0: VPN на связи'],
+  'profiles': ['Основной и запасные', 'Один основной профиль и очередь резервов. Отключённые профили пропускаются, порядок меняется перетаскиванием.', 'Профили AutoTurn 2.0: основной, обычный и последний резервы'],
+  'app-routing': ['Каждому приложению свой путь', 'Через VPN все приложения, только выбранные или все, кроме выбранных. Есть поиск и системные приложения.', 'Выбор приложений для VPN в AutoTurn 2.0'],
+  'settings': ['Настроили один раз', 'Тема, домашние Wi-Fi сети, приложения, защищённый режим и возврат в Авто собраны на одном экране.', 'Настройки AutoTurn 2.0'],
+  'home-light': ['И в светлой теме', 'Тёмная, светлая или как в системе: выбирается в настройках.', 'Главный экран AutoTurn 2.0 в светлой теме']
+};
+const buttons = document.querySelectorAll('[data-shot]');
+buttons.forEach(button => button.addEventListener('click', () => {
+  const key = button.dataset.shot;
+  const [title, copy, alt] = shots[key];
+  buttons.forEach(item => {
+    item.classList.toggle('selected', item === button);
+    item.setAttribute('aria-pressed', String(item === button));
+  });
+  const img = document.getElementById('shot');
+  img.src = `images/${key}.png`;
+  img.alt = alt;
+  document.getElementById('shot-title').textContent = title;
+  document.getElementById('shot-copy').textContent = copy;
+}));

@@ -1,10 +1,138 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="AutoTurn для Android: автоматическое переключение VPN по домашней Wi-Fi сети, профили и маршрутизация приложений."><meta name="theme-color" content="#101010"><title>AutoTurn для Android — Дома напрямую. Вне дома VPN.</title><meta property="og:title" content="AutoTurn для Android"><meta property="og:description" content="Дома — напрямую. Вне дома — VPN. Автоматическое переключение по домашней Wi-Fi сети."><meta property="og:type" content="website"><meta property="og:url" content="https://cveloy102.github.io/autoturn-vpn/"><link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="styles.css"></head>
-<body class="terminal"><header><a class="brand" href="#">AUTOTURN<span>_</span></a><nav aria-label="Основная навигация"><a href="#screens">Приложение</a><a href="#start">Как начать</a><a href="https://github.com/cveloy102/autoturn-vpn" target="_blank" rel="noopener">GitHub ↗</a></nav><span class="edition">ANDROID / 10+</span></header>
-<main><section class="hero"><div class="hero-copy"><div class="eyebrow">[ 01 / YOUR NETWORK. YOUR RULES. ]</div><h1>Дома — напрямую.<br>Вне дома — VPN<span>_</span></h1><p class="lead">AutoTurn переключает VPN по домашней Wi-Fi сети. Дома подключение идёт напрямую, в других сетях — через выбранный профиль.</p><div class="actions"><a class="button" href="https://github.com/cveloy102/autoturn-vpn/releases/latest">Скачать для Android <span>↗</span></a><a class="text-link" href="#start">Как это работает ↓</a></div><p class="note">Бесплатно · Открытый код · Нужен свой VPN-профиль</p><div class="network"><span>ДОМА <b>Wi-Fi → напрямую</b></span><span>ВНЕ ДОМА <b>Сеть → VPN</b></span></div></div><div class="hero-visual"><div class="figure-label">FIG. 01 / LIVE FROM ANDROID</div><div class="phone"><img src="images/home.png" alt="Главный экран AutoTurn на Android: домашняя Wi-Fi сеть и режим Авто" width="1280" height="2772"></div><div class="figure-footer"><span>РЕАЛЬНЫЙ ЭКРАН ПРИЛОЖЕНИЯ</span><span>01 / 04</span></div></div></section>
-<section class="features"><div><span class="index">01 / АВТОМАТИКА</span><h2>Подключение по ситуации.</h2><p>Укажи домашний SSID один раз. AutoTurn будет реагировать на смену сети. А когда нужно — включи VPN вручную.</p></div><div><span class="index">02 / КОНТРОЛЬ</span><h2>Выбирай, что идёт через VPN.</h2><p>Все приложения, только выбранные или все кроме выбранных. Маршрут настраивается под твои задачи.</p></div><div><span class="index">03 / ПРОФИЛИ</span><h2>Твои подключения в одном месте.</h2><p>AmneziaWG, VLESS Reality и Hysteria2. Импортируй профиль, выбери основной и добавь резервные.</p></div></section>
-<section id="screens" class="screens"><div class="section-head"><div><div class="eyebrow">[ 02 / INSIDE AUTOTURN ]</div><h2>Всё нужное.<br>Под рукой.</h2></div><p>Актуальные скриншоты с Android.<br>Тёмная, светлая и системная темы.</p></div><div class="gallery-controls" role="group" aria-label="Выбрать экран"><button class="selected" type="button" data-shot="home" aria-pressed="true">01 Главная</button><button type="button" data-shot="profiles" aria-pressed="false">02 Профили</button><button type="button" data-shot="app-routing" aria-pressed="false">03 Приложения</button><button type="button" data-shot="settings" aria-pressed="false">04 Настройки</button></div><div class="screen-stage"><div class="screen-caption"><span class="index" id="shot-number">SCREEN / 01</span><h3 id="shot-title">Один экран.<br>Весь контроль.</h3><p id="shot-copy">Текущая сеть, активный профиль и режим подключения. Ручное управление доступно в любой момент.</p><a class="text-link" href="https://github.com/cveloy102/autoturn-vpn/blob/main/docs/usage.md">Полная инструкция со скриншотами ↗</a></div><div class="phone gallery-phone"><img id="gallery-image" src="images/home.png" width="1280" height="2772" alt="Главный экран AutoTurn" loading="lazy"></div></div></section>
-<section id="start" class="start"><div class="section-head"><div><div class="eyebrow">[ 03 / GET CONNECTED ]</div><h2>Три шага.<br>И можно идти.</h2></div><a class="button" href="https://github.com/cveloy102/autoturn-vpn/releases/latest">Скачать APK ↗</a></div><ol><li><span>01</span><div><h3>Установи AutoTurn</h3><p>Скачай APK из GitHub Releases. Если Android спросит, разреши установку из выбранного браузера или файлового менеджера.</p></div></li><li><span>02</span><div><h3>Добавь свой профиль</h3><p>Импортируй конфигурацию файлом или ссылкой. AutoTurn — клиент: профиль нужно получить у своего VPN-провайдера или сервера.</p></div></li><li><span>03</span><div><h3>Укажи домашнюю сеть</h3><p>В настройках задай SSID домашнего Wi-Fi и включи «Авто». Разреши VPN-подключение и доступы, которые запросит приложение.</p></div></li></ol></section>
-<section class="faq"><div class="eyebrow">[ 04 / GOOD TO KNOW ]</div><h2>Перед первым запуском.</h2><details><summary>На каких телефонах работает?</summary><p>Нужен Android 12 или новее. На некоторых оболочках, включая HyperOS, для работы в фоне нужно разрешить автозапуск и снять ограничения батареи.</p></details><details><summary>Есть ли VPN-сервер в комплекте?</summary><p>Нет. AutoTurn управляет твоими профилями. Для подключения нужен готовый профиль и доступный VPN-сервер.</p></details><details><summary>Можно ли управлять вручную?</summary><p>Да. Есть режимы «Вкл» и «Выкл», таймер возврата в «Авто» и плитка быстрых настроек Android.</p></details><details><summary>Где инструкция и помощь?</summary><p><a href="https://github.com/cveloy102/autoturn-vpn/blob/main/docs/usage.md">Инструкция со скриншотами</a> объясняет настройку и режимы. Об ошибке можно написать в <a href="https://github.com/cveloy102/autoturn-vpn/issues">GitHub Issues</a>.</p></details></section>
-<section class="closing"><div class="eyebrow">READY WHEN YOU ARE.</div><h2>Твоя сеть.<br>Твои правила<span>_</span></h2><a class="button" href="https://github.com/cveloy102/autoturn-vpn/releases/latest">Скачать AutoTurn ↗</a></section></main>
-<footer><a class="brand" href="#">AUTOTURN<span>_</span></a><span>ANDROID · OPEN SOURCE</span><div><a href="https://github.com/cveloy102/autoturn-vpn/blob/main/docs/PRIVACY.md">Приватность</a><a href="https://cveloy102.github.io/autoturn-macos/">Для macOS ↗</a></div></footer><script src="script.js"></script></body></html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="AutoTurn для Android сам включает VPN вне дома и выключает его на домашнем Wi-Fi. Ваши профили, резервные подключения и защищённый режим.">
+<meta name="theme-color" content="#101010">
+<title>AutoTurn для Android — Дома напрямую. Вне дома VPN.</title>
+<meta property="og:title" content="AutoTurn для Android">
+<meta property="og:description" content="Дома — напрямую. Вне дома — VPN. Автоматическое переключение по домашнему Wi-Fi.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cveloy102.github.io/autoturn-vpn/">
+<meta property="og:image" content="https://cveloy102.github.io/autoturn-vpn/images/home-online.png">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/inter_display_black.ttf" as="font" type="font/ttf" crossorigin>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#"><span class="mark" aria-hidden="true"></span><span>AUTO<em>TURN_</em></span></a>
+  <nav aria-label="Основная навигация">
+    <a href="#features">Возможности</a>
+    <a href="#screens">Экраны</a>
+    <a href="#start">Как начать</a>
+    <a href="https://github.com/cveloy102/autoturn-vpn" target="_blank" rel="noopener">GitHub ↗</a>
+  </nav>
+  <span class="edition">Android 12+</span>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="hero-copy">
+      <a class="release" href="https://github.com/cveloy102/autoturn-vpn/releases/latest"><b>2.0</b> Новый дизайн и живой индикатор связи →</a>
+      <p class="eyebrow">[ 01 / YOUR NETWORK. YOUR RULES. ]</p>
+      <h1>Дома — напрямую.<br>Вне дома — VPN<span>_</span></h1>
+      <p class="lead">AutoTurn сам включает VPN, когда вы уходите из дома, и выключает его, когда телефон снова видит домашний Wi-Fi. Ничего не нужно нажимать.</p>
+      <div class="actions">
+        <a class="button" href="https://github.com/cveloy102/autoturn-vpn/releases/latest">Скачать для Android <span aria-hidden="true">↗</span></a>
+        <a class="text-link" href="#start">Как начать</a>
+      </div>
+      <p class="note">Бесплатно · Открытый код · Нужен свой VPN-профиль</p>
+      <dl class="network">
+        <div><dt>Дома</dt><dd>Wi-Fi → напрямую</dd></div>
+        <div><dt>Вне дома</dt><dd>Любая сеть → VPN</dd></div>
+        <div><dt>Сбой</dt><dd>Следующий профиль</dd></div>
+      </dl>
+    </div>
+    <figure class="hero-visual">
+      <div class="phone"><img src="images/home-online.png" alt="Главный экран AutoTurn 2.0: VPN на связи, индикатор связи горит красным" width="1280" height="2772"></div>
+      <figcaption>Реальный экран AutoTurn 2.0</figcaption>
+    </figure>
+  </section>
+
+  <section id="features" class="features" aria-labelledby="features-title">
+    <div class="section-head">
+      <div>
+        <p class="eyebrow">[ 02 / WHAT IT DOES ]</p>
+        <h2 id="features-title">Настроил один раз.<br>Дальше само.</h2>
+      </div>
+    </div>
+    <div class="grid">
+      <article><h3>Переключает по Wi-Fi</h3><p>Добавьте домашние сети один раз. Дома VPN выключен, в кафе, на работе и на мобильном интернете — включён.</p></article>
+      <article><h3>Держит запасной вариант</h3><p>Проверяет, что интернет через VPN правда работает. Если нет — переходит на следующий профиль из вашей очереди.</p></article>
+      <article><h3>Не пускает мимо VPN</h3><p>Защищённый режим: пока VPN переподключается, выбранные приложения ждут, а не уходят в сеть напрямую.</p></article>
+      <article><h3>Ваши профили</h3><p>AmneziaWG, VLESS + REALITY, Hysteria 2 и qWDTT. Импорт файлом или ссылкой, перенос на другой телефон одним файлом.</p></article>
+      <article><h3>Каждому приложению — свой путь</h3><p>Через VPN все приложения, только выбранные или все, кроме выбранных.</p></article>
+      <article><h3>Ручное управление</h3><p>Кнопка в приложении и плитка в шторке. Через 2, 4, 6 или 24 часа AutoTurn сам вернётся в Авто.</p></article>
+    </div>
+  </section>
+
+  <section id="screens" class="screens" aria-labelledby="screens-title">
+    <div class="section-head">
+      <div>
+        <p class="eyebrow">[ 03 / INSIDE AUTOTURN ]</p>
+        <h2 id="screens-title">Всё нужное.<br>Под рукой.</h2>
+      </div>
+      <p>Скриншоты AutoTurn 2.0 на Android.<br>Профили и имя сети демонстрационные.</p>
+    </div>
+    <div class="tabs" role="group" aria-label="Выбрать экран">
+      <button type="button" class="selected" data-shot="home-online" aria-pressed="true">Главная</button>
+      <button type="button" data-shot="profiles" aria-pressed="false">Профили</button>
+      <button type="button" data-shot="app-routing" aria-pressed="false">Приложения</button>
+      <button type="button" data-shot="settings" aria-pressed="false">Настройки</button>
+      <button type="button" data-shot="home-light" aria-pressed="false">Светлая тема</button>
+    </div>
+    <div class="stage">
+      <div class="caption" aria-live="polite">
+        <h3 id="shot-title">Статус видно сразу</h3>
+        <p id="shot-copy">Крупная надпись говорит, что происходит: «Вы дома», «Подключаемся», «На связи». Индикатор двигается, пока VPN подключается и работает.</p>
+        <a class="text-link" href="https://github.com/cveloy102/autoturn-vpn/blob/main/docs/usage.md">Инструкция со скриншотами ↗</a>
+      </div>
+      <div class="phone"><img id="shot" src="images/home-online.png" alt="Главный экран AutoTurn 2.0" width="1280" height="2772" loading="lazy"></div>
+    </div>
+  </section>
+
+  <section id="start" class="start" aria-labelledby="start-title">
+    <div class="section-head">
+      <div>
+        <p class="eyebrow">[ 04 / GET CONNECTED ]</p>
+        <h2 id="start-title">Три шага.<br>И можно идти.</h2>
+      </div>
+      <a class="button" href="https://github.com/cveloy102/autoturn-vpn/releases/latest">Скачать APK <span aria-hidden="true">↗</span></a>
+    </div>
+    <ol>
+      <li><span>01</span><h3>Установите AutoTurn</h3><p>Скачайте APK из GitHub Releases. Если Android спросит, разрешите установку из браузера или файлового менеджера.</p></li>
+      <li><span>02</span><h3>Добавьте профиль</h3><p>Файлом или ссылкой. AutoTurn — клиент: профиль нужно получить у своего VPN-сервера или провайдера.</p></li>
+      <li><span>03</span><h3>Укажите домашний Wi-Fi</h3><p>Подключитесь к нему, нажмите «+ Добавить текущую сеть» и включите режим «Авто».</p></li>
+    </ol>
+  </section>
+
+  <section class="faq" aria-labelledby="faq-title">
+    <p class="eyebrow">[ 05 / GOOD TO KNOW ]</p>
+    <h2 id="faq-title">Перед первым запуском.</h2>
+    <details><summary>На каких телефонах работает?</summary><p>Нужен Android 12 или новее. На некоторых оболочках, включая HyperOS, для работы в фоне нужно разрешить автозапуск и снять ограничения батареи.</p></details>
+    <details><summary>Есть ли VPN-сервер в комплекте?</summary><p>Нет. AutoTurn управляет вашими профилями. Нужен готовый профиль и доступный VPN-сервер.</p></details>
+    <details><summary>Зачем приложению местоположение?</summary><p>Android даёт узнать имя Wi-Fi только с этим разрешением. Координаты AutoTurn не читает и никуда не отправляет.</p></details>
+    <details><summary>Как обновлять?</summary><p>AutoTurn сам проверяет новые версии раз в сутки и ставит их поверх. Профили и настройки сохраняются, удалять приложение не нужно.</p></details>
+    <details><summary>Где инструкция и помощь?</summary><p><a href="https://github.com/cveloy102/autoturn-vpn/blob/main/docs/usage.md">Инструкция со скриншотами</a> объясняет настройку и режимы. Об ошибке можно написать в <a href="https://github.com/cveloy102/autoturn-vpn/issues">GitHub Issues</a>.</p></details>
+  </section>
+
+  <section class="closing">
+    <h2>Ваша сеть.<br>Ваши правила<span>_</span></h2>
+    <a class="button" href="https://github.com/cveloy102/autoturn-vpn/releases/latest">Скачать AutoTurn 2.0 <span aria-hidden="true">↗</span></a>
+  </section>
+</main>
+
+<footer>
+  <a class="brand" href="#"><span class="mark" aria-hidden="true"></span><span>AUTO<em>TURN_</em></span></a>
+  <span class="sig">powered by <em>LENCHA_</em></span>
+  <div>
+    <a href="https://github.com/cveloy102/autoturn-vpn/blob/main/docs/PRIVACY.md">Приватность</a>
+    <a href="https://github.com/cveloy102/autoturn-vpn/blob/main/CHANGELOG.md">История версий</a>
+    <a href="https://cveloy102.github.io/autoturn-macos/">Для macOS ↗</a>
+  </div>
+</footer>
+<script src="script.js"></script>
+</body>
+</html>

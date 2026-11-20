@@ -6,6 +6,7 @@ on:
     paths:
       - 'landing/**'
       - 'docs/images/**'
+      - 'app/src/main/res/font/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -29,9 +30,10 @@ jobs:
       - uses: actions/configure-pages@v5
       - name: Assemble Android website
         run: |
-          mkdir -p _site/images
+          mkdir -p _site/images _site/fonts
           cp landing/index.html landing/styles.css landing/script.js landing/favicon.svg _site/
-          cp docs/images/{home,profiles,app-routing,settings}.png _site/images/
+          cp docs/images/{home-online,profiles,app-routing,settings,home-light}.png _site/images/
+          cp app/src/main/res/font/{inter_display_black,inter_medium,jetbrains_mono_medium}.ttf _site/fonts/
           touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v4
         with:
