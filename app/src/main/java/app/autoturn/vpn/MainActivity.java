@@ -364,16 +364,19 @@ public final class MainActivity extends Activity {
 
     private void terminalEyebrow(LinearLayout root, String text) {
         TextView eyebrow = label(text, 11, NEON, false);
-        eyebrow.setLetterSpacing(.10f);
+        eyebrow.setLetterSpacing(.12f);
         root.addView(eyebrow);
-        gap(root, 16);
+        gap(root, 12);
     }
 
     private void renderTerminalHome(LinearLayout root) {
         homeUpdate = action("", false, v -> updateUi.openUpdate());
-        homeUpdate.setTextSize(12);
-        root.addView(homeUpdate, new LinearLayout.LayoutParams(-1, dp(48)));
-        gap(root, 16);
+        homeUpdate.setTextSize(11);
+        homeUpdate.setMinHeight(dp(34)); homeUpdate.setMinimumHeight(dp(34));
+        homeUpdate.setPadding(dp(14), 0, dp(14), 0);
+        homeUpdate.setBackground(TerminalUi.surface(this, BG, palette.border, 999));
+        root.addView(homeUpdate, new LinearLayout.LayoutParams(-2, dp(34)));
+        gap(root, 14);
         updateHomeUpdate();
         String state = StatusStore.state(this);
         String detail = StatusStore.detail(this);
@@ -384,28 +387,28 @@ public final class MainActivity extends Activity {
         String headline = blocked ? "Защита активна." : on ? "На связи." : atHome ? "Вы дома." : connecting ?
                 "Подключаемся." : StatusStore.ERROR.equals(state) ? "Нет связи." : "VPN выключен.";
         terminalEyebrow(root, "[ 01 / CONNECTION ]");
-        terminalHeadline = TerminalUi.title(root, palette, headline, 36);
+        terminalHeadline = TerminalUi.title(root, palette, headline, 44);
         terminalHeadline.setMaxLines(1);
-        terminalHeadline.setAutoSizeTextTypeUniformWithConfiguration(26, 36, 1,
+        terminalHeadline.setAutoSizeTextTypeUniformWithConfiguration(28, 44, 1,
                 android.util.TypedValue.COMPLEX_UNIT_SP);
-        terminalHeadline.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(56)));
-        gap(root, 12);
+        terminalHeadline.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(54)));
+        gap(root, 8);
         if (detail.isEmpty()) detail = store.automation ?
                 "Ожидаем подключения к сети" : "Автоматика выключена";
         TextView description = label(detail, 13, MUTED, false);
         terminalDescription = description;
-        description.setMinLines(2);
+        description.setMinLines(1);
         description.setMaxLines(2);
         description.setEllipsize(android.text.TextUtils.TruncateAt.END);
         description.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         root.addView(description);
-        gap(root, 24);
+        gap(root, 18);
 
         Profile active = store.activeProfile();
         LinearLayout signal = new LinearLayout(this);
         signal.setOrientation(LinearLayout.VERTICAL);
-        signal.setPadding(dp(14), dp(12), dp(14), dp(12));
-        signal.setBackground(TerminalUi.surface(this, BG, palette.border));
+        signal.setPadding(dp(16), dp(14), dp(16), dp(12));
+        signal.setBackground(TerminalUi.surface(this, CARD, palette.border, 16));
         LinearLayout heading = new LinearLayout(this);
         heading.setGravity(Gravity.CENTER_VERTICAL);
         heading.addView(label("LINK / " + protocolName(active), 10, MUTED, false),
@@ -418,8 +421,9 @@ public final class MainActivity extends Activity {
         heading.addView(terminalBadge, new LinearLayout.LayoutParams(-2, dp(18)));
         signal.addView(heading);
         terminalSignal = new TerminalUi.Signal(this, palette, state);
-        signal.addView(terminalSignal,
-                new LinearLayout.LayoutParams(-1, dp(58)));
+        LinearLayout.LayoutParams meterSize = new LinearLayout.LayoutParams(-1, dp(52));
+        meterSize.setMargins(0, dp(8), 0, dp(4));
+        signal.addView(terminalSignal, meterSize);
         terminalFoot = label(blocked ? "■ ТРАФИК ЗАБЛОКИРОВАН" : on ? ((store.connectionGuard || store.protectedMode) && detail.startsWith("VPN проверен") ?
                 "● ДОСТУП ПРОВЕРЕН" : "● VPN ЗАПУЩЕН") : atHome ? "■ ДОМАШНЯЯ СЕТЬ" :
                 connecting ? "◌ УСТАНАВЛИВАЕМ СВЯЗЬ" : StatusStore.ERROR.equals(state) ?
@@ -438,15 +442,20 @@ public final class MainActivity extends Activity {
                         .putExtra("request", pending.optString("captchaRequest")));
             }));
         }
-        gap(root, 20);
-        terminalInfo(root, "Основной", store.primaryProfile() == null ? "Не выбран →" : store.primaryProfile().name +
+        gap(root, 14);
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setPadding(dp(16), 0, dp(16), 0);
+        info.setBackground(TerminalUi.surface(this, CARD, palette.border, 16));
+        root.addView(info);
+        terminalInfo(info, "Основной", store.primaryProfile() == null ? "Не выбран →" : store.primaryProfile().name +
                         (store.primaryProfile().enabled ? " →" : " (отключён) →"),
                 v -> navigateTo(PAGE_PROFILES));
-        terminalNetwork = terminalInfo(root, "Сеть", atHome ? currentWifiSsid() : networkLabel(), null);
+        terminalNetwork = terminalInfo(info, "Сеть", atHome ? currentWifiSsid() : networkLabel(), null);
         boolean manual = !SecureStore.MANUAL_AUTO.equals(store.manualMode);
-        terminalInfo(root, "Режим", modeLabel() + " →", v -> showModeChooser());
-        if (manual) terminalInfo(root, "Возврат в Авто", returnLabel(), null);
-        gap(root, 22);
+        terminalInfo(info, "Режим", modeLabel() + " →", v -> showModeChooser());
+        if (manual) terminalInfo(info, "Возврат в Авто", returnLabel(), null);
+        gap(root, 16);
         boolean running = on || connecting || (blocked && !SecureStore.MANUAL_OFF.equals(store.manualMode));
         terminalPower = action(running ? "Выключить VPN  ↗" : "Включить VPN  ↗", true,
                 v -> {
@@ -499,20 +508,21 @@ public final class MainActivity extends Activity {
     }
 
     private TextView terminalInfo(LinearLayout root, String caption, String value, View.OnClickListener click) {
+        if (root.getChildCount() > 0) TerminalUi.divider(root, palette.divider);
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(13), 0, dp(13));
-        row.addView(label(caption, 12, MUTED, false), new LinearLayout.LayoutParams(0, -2, 1));
+        row.setMinimumHeight(dp(52));
+        row.setPadding(0, dp(12), 0, dp(12));
+        row.addView(label(caption, 12, MUTED, false), new LinearLayout.LayoutParams(-2, -2));
         TextView text = label(value, 13, TEXT, false);
         text.setGravity(Gravity.END);
-        row.addView(text, new LinearLayout.LayoutParams(0, -2, 2));
+        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1)); text.setPadding(dp(12), 0, 0, 0);
         if (click != null) {
             row.setOnClickListener(click);
             row.setFocusable(true);
             row.setContentDescription(caption + ": " + value);
         }
         root.addView(row);
-        TerminalUi.divider(root, palette.divider);
         return text;
     }
 
@@ -570,15 +580,15 @@ public final class MainActivity extends Activity {
         control.setText(title);
         control.setTextColor(TEXT);
         control.setTextSize(13);
-        control.setTypeface(Typeface.MONOSPACE);
+        control.setTypeface(TerminalUi.mono(this));
         control.setMinHeight(dp(48));
-        control.setSwitchMinWidth(dp(60));
+        control.setSwitchMinWidth(dp(58));
         control.setSwitchPadding(dp(16));
         control.setShowText(false);
         control.setSplitTrack(false);
         GradientDrawable thumb = new GradientDrawable();
         thumb.setColor(TEXT);
-        thumb.setCornerRadius(dp(3));
+        thumb.setCornerRadius(dp(5));
         thumb.setSize(dp(22), dp(22));
         control.setThumbDrawable(new android.graphics.drawable.InsetDrawable(thumb, dp(4)));
         android.graphics.drawable.StateListDrawable tracks = new android.graphics.drawable.StateListDrawable();
@@ -586,8 +596,8 @@ public final class MainActivity extends Activity {
             GradientDrawable track = new GradientDrawable();
             track.setColor(enabled ? NEON : palette.switchOff);
             track.setStroke(dp(1), enabled ? NEON : palette.switchBorder);
-            track.setCornerRadius(dp(5));
-            track.setSize(dp(60), dp(30));
+            track.setCornerRadius(dp(8));
+            track.setSize(dp(58), dp(30));
             tracks.addState(enabled ? new int[]{android.R.attr.state_checked} : new int[]{}, track);
         }
         control.setTrackDrawable(tracks);
@@ -612,7 +622,7 @@ public final class MainActivity extends Activity {
 
     private void renderTerminalSettings(LinearLayout root) {
         terminalEyebrow(root, "[ 03 / SETTINGS ]");
-        TerminalUi.title(root, palette, "По вашим\nправилам", 27);
+        TerminalUi.title(root, palette, "По вашим\nправилам", 32);
         gap(root, 22);
         renderThemeChooser(root);
         gap(root, 18);
@@ -687,7 +697,7 @@ public final class MainActivity extends Activity {
 
     private void renderTerminalProfiles(LinearLayout root) {
         terminalEyebrow(root, "[ 02 / PROFILES ]");
-        TerminalUi.title(root, palette, "Свои маршруты", 27);
+        TerminalUi.title(root, palette, "Свои маршруты", 32);
         gap(root, 12);
         root.addView(label(store.profiles.isEmpty() ? "Добавьте первое подключение." :
                 "Каждый запуск — с основного.\nОтключённые профили пропускаются.", 13, MUTED, false));
@@ -873,19 +883,18 @@ public final class MainActivity extends Activity {
         edition.setLetterSpacing(.12f);
         content.addView(edition);
         gap(content, 13);
-        content.addView(label("Что нового", 27, TEXT, true));
+        TextView notesTitle = label("Что нового", 30, TEXT, false);
+        notesTitle.setTypeface(TerminalUi.display(this));
+        notesTitle.setLetterSpacing(-.035f);
+        content.addView(notesTitle);
         gap(content, 17);
-        TextView changes = label("Изменения с версии 1.5.0:\n\n" +
-                "• Защищённый режим: сохраняет блокировку трафика при обрывах и смене профилей. По умолчанию выключен.\n\n" +
-                "• Профили можно включать и отключать, сохраняя их настройки и место в очереди.\n\n" +
-                "• Кнопка на главной начинает очередь заново с основного разрешённого профиля.\n\n" +
-                "• IP серверов запоминаются и обновляются в фоне без разрыва соединения.\n\n" +
-                "• Служебный DNS qWDTT использует текущую сеть; DNS приложений в защищённом режиме остаётся в VPN.\n\n" +
-                "• Улучшены проверки связи и обновление статуса «Нет сети».\n\n" +
-                "В защищённом режиме ручное выключение VPN вне дома сохраняет блокировку. " +
-                "Для прямого доступа выключите защищённый режим. Дома в Авто всё работает как прежде.\n\n" +
-                "Защита не действует при принудительной остановке приложения, отзыве VPN-разрешения " +
-                "и до первоначального запуска защиты после загрузки телефона.", 14, MUTED, false);
+        TextView changes = label("• Обновлённый вид: новые шрифты, скруглённые карточки и кнопки, " +
+                "живой индикатор связи. Все функции остались на своих местах.\n\n" +
+                "• После импорта по ссылке она удаляется из буфера обмена: в ней ключи сервера.\n\n" +
+                "• Предупреждение при импорте Hysteria 2 с insecure=1: такой профиль " +
+                "не проверяет сертификат сервера. Безопаснее добавить pinSHA256.\n\n" +
+                "• Теперь нужен Android 12 или новее. На Android 10–11 автоматика " +
+                "работала с ошибками.", 14, MUTED, false);
         changes.setLineSpacing(dp(2), 1f);
         ScrollView changesScroll=new ScrollView(this);
         changesScroll.addView(changes);
@@ -930,7 +939,7 @@ public final class MainActivity extends Activity {
         option.setText(title);
         option.setTextColor(TEXT);
         option.setTextSize(13);
-        option.setTypeface(Typeface.MONOSPACE);
+        option.setTypeface(TerminalUi.mono(this));
         option.setPadding(dp(14), 0, dp(14), 0);
         option.setCompoundDrawablePadding(dp(12));
         option.setBackground(TerminalUi.surface(this, selected ? CARD : BG,
@@ -941,10 +950,13 @@ public final class MainActivity extends Activity {
             ring.setColor(checked ? NEON : BG);
             ring.setStroke(dp(1), checked ? NEON : MUTED);
             ring.setSize(dp(16), dp(16));
+            ring.setCornerRadius(dp(5));
             if (checked) {
                 GradientDrawable center = new GradientDrawable();
                 center.setColor(NEON);
+                center.setCornerRadius(dp(2));
                 GradientDrawable base = new GradientDrawable();
+                base.setCornerRadius(dp(5));
                 base.setColor(BG);
                 base.setStroke(dp(1), NEON);
                 base.setSize(dp(16), dp(16));
@@ -988,28 +1000,52 @@ public final class MainActivity extends Activity {
 
 
     private LinearLayout createTerminalNav() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.VERTICAL);
+        bar.setBackgroundColor(BG);
+        TerminalUi.divider(bar, palette.divider);
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
-        nav.setPadding(dp(14), 0, dp(14), dp(8));
-        nav.setBackgroundColor(BG);
+        nav.setPadding(dp(12), dp(8), dp(12), dp(8));
+        bar.addView(nav);
+        // Selected tab sits on a soft plate with a red icon; the others stay quiet.
+        int plate = palette.light ? 0xFFE7E2D8 : 0xFF242220;
         String[] names = {"Главная", "Профили", "Настройки"};
+        int[] icons = {R.drawable.ic_nav_home, R.drawable.ic_nav_profiles, R.drawable.ic_nav_settings};
         for (int i = 0; i < names.length; i++) {
             final int destination = i;
-            LinearLayout column = new LinearLayout(this);
-            column.setOrientation(LinearLayout.VERTICAL);
-            View line = new View(this);
-            line.setBackgroundColor(page == i ? NEON : palette.divider);
-            column.addView(line, new LinearLayout.LayoutParams(-1, dp(page == i ? 2 : 1)));
-            Button item = TerminalUi.button(this, palette, names[i], false, v -> navigateTo(destination));
-            item.setBackgroundColor(BG);
-            item.setTextColor(page == i ? TEXT : MUTED);
-            item.setTextSize(12);
-            item.setSelected(page == i);
-            item.setContentDescription(names[i] + (page == i ? ", выбран" : ""));
-            column.addView(item, new LinearLayout.LayoutParams(-1, -2));
-            nav.addView(column, new LinearLayout.LayoutParams(0, -2, 1));
+            boolean selected = page == i;
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.VERTICAL);
+            item.setGravity(Gravity.CENTER);
+            item.setPadding(0, dp(7), 0, dp(7));
+            GradientDrawable shape = new GradientDrawable();
+            shape.setColor(selected ? plate : android.graphics.Color.TRANSPARENT);
+            shape.setCornerRadius(dp(TerminalUi.RADIUS));
+            item.setBackground(new android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(0x18000000 | (TEXT & 0x00FFFFFF)), shape,
+                    new GradientDrawable() {{ setColor(Color.WHITE); setCornerRadius(dp(TerminalUi.RADIUS)); }}));
+            android.widget.ImageView icon = new android.widget.ImageView(this);
+            icon.setImageResource(icons[i]);
+            icon.setImageTintList(android.content.res.ColorStateList.valueOf(selected ? NEON : MUTED));
+            icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            item.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
+            TextView label = label(names[i], 12, selected ? TEXT : MUTED, false);
+            label.setTypeface(TerminalUi.sans(this), selected ? Typeface.BOLD : Typeface.NORMAL);
+            label.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams labelSize = new LinearLayout.LayoutParams(-2, -2);
+            labelSize.topMargin = dp(3);
+            item.addView(label, labelSize);
+            item.setClickable(true);
+            item.setFocusable(true);
+            item.setSelected(selected);
+            item.setContentDescription(names[i] + (selected ? ", выбран" : ""));
+            item.setOnClickListener(v -> navigateTo(destination));
+            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(0, dp(58), 1);
+            size.setMargins(dp(3), 0, dp(3), 0);
+            nav.addView(item, size);
         }
-        return nav;
+        return bar;
     }
 
     private void toggleConnectionGuard() {
@@ -1069,7 +1105,7 @@ public final class MainActivity extends Activity {
         {
             input.setTextColor(TEXT);
             input.setHintTextColor(MUTED);
-            input.setTypeface(Typeface.MONOSPACE);
+            input.setTypeface(TerminalUi.mono(this));
             input.setBackground(TerminalUi.surface(this, CARD, palette.border));
         }
         AlertDialog dialog = new AlertDialog.Builder(this)
@@ -1148,7 +1184,7 @@ public final class MainActivity extends Activity {
     private void addHomeWifiByName() {
         EditText input = new EditText(this); input.setSingleLine(true);
         input.setHint("Имя Wi-Fi (SSID)"); input.setTextColor(TEXT); input.setHintTextColor(MUTED);
-        input.setTypeface(Typeface.MONOSPACE); input.setPadding(dp(18), dp(12), dp(18), dp(12));
+        input.setTypeface(TerminalUi.mono(this)); input.setPadding(dp(18), dp(12), dp(18), dp(12));
         input.setBackground(TerminalUi.surface(this, CARD, palette.border));
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Добавить домашнюю сеть")
                 .setMessage("Введите точное имя сети с учётом регистра.")
@@ -1269,7 +1305,7 @@ public final class MainActivity extends Activity {
         return new android.widget.ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice, labels) {
             @Override public View getView(int position, View reusable, android.view.ViewGroup parent) {
                 android.widget.CheckedTextView choice = (android.widget.CheckedTextView) super.getView(position, reusable, parent);
-                choice.setTextColor(TEXT); choice.setTypeface(Typeface.MONOSPACE); choice.setTextSize(14);
+                choice.setTextColor(TEXT); choice.setTypeface(TerminalUi.mono(MainActivity.this)); choice.setTextSize(14);
                 choice.setCheckMarkTintList(new android.content.res.ColorStateList(
                         new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
                         new int[]{NEON, MUTED}));
@@ -1282,7 +1318,7 @@ public final class MainActivity extends Activity {
         TerminalUi.styleDialog(controlDialog, palette);
         int titleId = getResources().getIdentifier("alertTitle", "id", "android");
         TextView title = controlDialog.findViewById(titleId);
-        if (title != null) { title.setTextColor(TEXT); title.setTypeface(Typeface.MONOSPACE); }
+        if (title != null) { title.setTextColor(TEXT); title.setTypeface(TerminalUi.mono(this)); }
     }
 
     private void requestManualOn() {
@@ -1337,7 +1373,26 @@ public final class MainActivity extends Activity {
         ClipData data = clipboard == null ? null : clipboard.getPrimaryClip();
         if (data == null || data.getItemCount() == 0) { error("Буфер обмена пуст"); return; }
         CharSequence value = data.getItemAt(0).coerceToText(this);
-        importText("", value.toString());
+        // The link carries server keys: once it is saved in AutoTurn, don't leave it in the clipboard.
+        if (importText("", value.toString())) {
+            try { clipboard.clearPrimaryClip(); } catch (Exception ignored) { }
+        }
+    }
+
+    private void warnInsecure(java.util.List<Profile> added) {
+        java.util.List<String> names = new java.util.ArrayList<>();
+        for (Profile p : added)
+            if (Profile.HYSTERIA2.equals(p.type) && Hysteria2Config.skipsCertificateCheck(p.config)) names.add(p.name);
+        if (names.isEmpty()) return;
+        String who = names.size() == 1 ? "В профиле «" + names.get(0) + "»" :
+                "В профилях «" + android.text.TextUtils.join("», «", names) + "»";
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Сертификат сервера не проверяется")
+                .setMessage(who + " стоит insecure=1. AutoTurn не сможет убедиться, что подключается " +
+                        "именно к вашему серверу: в чужой сети его можно подменить и увидеть пароль.\n\n" +
+                        "Безопаснее добавить в ссылку отпечаток сертификата (pinSHA256). " +
+                        "Профиль добавлен и работает как раньше.")
+                .setPositiveButton("Понятно", null).show();
+        TerminalUi.styleDialog(dialog, palette);
     }
 
     private void exportProfiles() {
@@ -1373,7 +1428,8 @@ public final class MainActivity extends Activity {
         return uri.getLastPathSegment();
     }
 
-    private void importText(String name, String content) {
+    /** Returns true when the content was read and saved (or was already saved). */
+    private boolean importText(String name, String content) {
         try {
             java.util.List<Profile> bundle = ProfileImporter.parseBundle(content);
             if (bundle != null) {
@@ -1394,7 +1450,8 @@ public final class MainActivity extends Activity {
                                 (skipped > 0 ? " · уже были: " + skipped : "") +
                                 (unsupported > 0 ? " · qWDTT не поддерживается: " + unsupported : ""),
                         android.widget.Toast.LENGTH_LONG).show();
-                return;
+                warnInsecure(fresh);
+                return true;
             }
             Profile profile = ProfileImporter.parse(name, content);
             if (Profile.QWDTT.equals(profile.type) && !qwdttSupported())
@@ -1402,6 +1459,8 @@ public final class MainActivity extends Activity {
             store.add(profile);
             refreshAutomation();
             render();
+            warnInsecure(java.util.Collections.singletonList(profile));
+            return true;
         } catch (IllegalArgumentException e) {
             // AutoTurn's own importer messages are Russian and written for the user (e.g. unsupported
             // Hysteria 2 port ranges). Library messages (NumberFormatException etc.) may quote parts
@@ -1411,6 +1470,7 @@ public final class MainActivity extends Activity {
                     message.length() <= 200 && message.matches("(?s).*[А-Яа-яЁё].*");
             error(ours ? message : "Не удалось прочитать профиль. Проверьте формат файла.");
         } catch (Exception e) { error("Не удалось прочитать профиль. Проверьте формат файла."); }
+        return false;
     }
 
     // The bundled qWDTT client (libqwdtt.so) is built for arm64-v8a only.
@@ -1472,7 +1532,7 @@ public final class MainActivity extends Activity {
     private TextView label(String text, int sp, int color, boolean bold) {
         TextView view = new TextView(this);
         view.setText(text); view.setTextColor(color); view.setTextSize(sp);
-        view.setTypeface(Typeface.MONOSPACE, Typeface.NORMAL);
+        view.setTypeface(TerminalUi.mono(this));
         return view;
     }
 

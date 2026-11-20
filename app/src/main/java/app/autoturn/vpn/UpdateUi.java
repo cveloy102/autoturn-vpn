@@ -102,7 +102,7 @@ final class UpdateUi implements AppUpdater.Listener {
         scroll.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
         TextView text = new TextView(activity);
         text.setText(message); text.setTextSize(14); text.setTextColor(palette().text);
-        text.setTypeface(android.graphics.Typeface.MONOSPACE);
+        text.setTypeface(TerminalUi.mono(activity));
         int padding = dp(22); text.setPadding(padding, padding, padding, padding);
         scroll.addView(text);
         dialog = new AlertDialog.Builder(activity).setTitle("AutoTurn " + release.version)
@@ -152,7 +152,7 @@ final class UpdateUi implements AppUpdater.Listener {
             layout.setOrientation(LinearLayout.VERTICAL);
             int padding = dp(22); layout.setPadding(padding, padding, padding, padding);
             progressText = new TextView(activity); progressText.setTextSize(14);
-            progressText.setTextColor(palette().text); progressText.setTypeface(android.graphics.Typeface.MONOSPACE);
+            progressText.setTextColor(palette().text); progressText.setTypeface(TerminalUi.mono(activity));
             layout.addView(progressText);
             progress = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
             progress.setProgressTintList(android.content.res.ColorStateList.valueOf(palette().accent));

@@ -138,7 +138,7 @@ public final class AppRoutingActivity extends Activity {
                 private View style(View view) {
                     TextView text = (TextView) view;
                     text.setTextColor(TEXT);
-                    text.setTypeface(Typeface.MONOSPACE);
+                    text.setTypeface(TerminalUi.mono(getContext()));
                     text.setTextSize(13);
                     text.setPadding(dp(8), dp(12), dp(8), dp(12));
                     text.setBackgroundColor(CARD);
@@ -185,7 +185,7 @@ public final class AppRoutingActivity extends Activity {
         search.setBackgroundColor(CARD);
         search.setPadding(dp(14), dp(9), dp(14), dp(9));
         {
-            search.setTypeface(Typeface.MONOSPACE);
+            search.setTypeface(TerminalUi.mono(this));
             search.setTextSize(14);
             search.setBackground(TerminalUi.surface(this, CARD, palette.border));
         }
@@ -204,7 +204,7 @@ public final class AppRoutingActivity extends Activity {
         system.setText("Показать системные");
         system.setTextSize(13);
         system.setTextColor(MUTED);
-        system.setTypeface(Typeface.MONOSPACE);
+        system.setTypeface(TerminalUi.mono(this));
         system.setButtonTintList(ColorStateList.valueOf(NEON));
         system.setChecked(showSystem);
         system.setOnCheckedChangeListener((button, checked) -> {
@@ -378,7 +378,7 @@ public final class AppRoutingActivity extends Activity {
     private TextView label(String text, int size, int color, boolean bold) {
         TextView view = new TextView(this);
         view.setText(text); view.setTextSize(size); view.setTextColor(color);
-        view.setTypeface(Typeface.MONOSPACE, Typeface.NORMAL);
+        view.setTypeface(TerminalUi.mono(this));
         return view;
     }
 

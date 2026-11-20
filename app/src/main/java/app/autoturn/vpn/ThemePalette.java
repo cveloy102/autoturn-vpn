@@ -6,7 +6,7 @@ import android.view.View;
 
 final class ThemePalette {
     final int bg, card, accent, text, muted, divider, secondaryButton, border;
-    final int radius = 0;
+    final int radius = 20;
     final int onAccent, online, switchOff, switchBorder, thumbOff;
     final boolean light;
 

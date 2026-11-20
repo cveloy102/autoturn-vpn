@@ -186,7 +186,10 @@ public final class ProtectedVpnService extends VpnService {
                 DialerController controller = fd -> protect((int) fd);
                 LibXray.registerDialerController(controller);
                 LibXray.registerListenerController(controller);
-                // Endpoints were resolved explicitly over HTTPS. No direct UDP/system DNS fallback.
+                // Server endpoints are already IPs here: EndpointResolver used the saved address or,
+                // if none, the physical network's DNS (kept on purpose: public DoH is often blocked
+                // on whitelisted mobile networks). App DNS inside Xray goes to 1.1.1.1 DoH via the
+                // proxy outbound; there is no direct system DNS fallback for protected apps.
                 drainPending();
                 xrayFd = ParcelFileDescriptor.dup(tunnel.getFileDescriptor());
                 JSONObject json = xrayConfig(outbounds, xrayFd.getFd());
@@ -266,7 +269,7 @@ public final class ProtectedVpnService extends VpnService {
 
     private void drainPending() throws Exception {
         // Builder.setBlocking(false), and both native engines use nonblocking descriptors.
-        // Avoid fcntlInt (API 30) so protected mode also works on the app's Android 10 minimum.
+        // Nonblocking descriptors are set up by the builder and engines; no fcntl call is needed here.
         byte[] packet = new byte[65536];
         android.system.StructPollfd readable = new android.system.StructPollfd();
         readable.fd = tunnel.getFileDescriptor(); readable.events = (short) OsConstants.POLLIN;

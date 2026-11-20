@@ -8,6 +8,31 @@ import org.json.JSONObject;
 final class Hysteria2Config {
     private Hysteria2Config() { }
 
+    /**
+     * True when a Hysteria 2 link turns off the server certificate check (insecure=1)
+     * and gives no certificate fingerprint (pinSHA256) to check instead.
+     * Plain string parsing so it runs in local unit tests without Android.
+     */
+    static boolean skipsCertificateCheck(String link) {
+        if (link == null) return false;
+        String value = link.trim();
+        String lower = value.toLowerCase(java.util.Locale.ROOT);
+        if (!lower.startsWith("hy2://") && !lower.startsWith("hysteria2://")) return false;
+        int start = value.indexOf('?');
+        if (start < 0) return false;
+        int end = value.indexOf('#', start);
+        String query = end < 0 ? value.substring(start + 1) : value.substring(start + 1, end);
+        boolean insecure = false, pinned = false;
+        for (String pair : query.split("&")) {
+            int eq = pair.indexOf('=');
+            String key = eq < 0 ? pair : pair.substring(0, eq);
+            String val = eq < 0 ? "" : pair.substring(eq + 1);
+            if ("insecure".equals(key)) insecure = "1".equals(val);
+            if ("pinSHA256".equals(key) && !val.isEmpty()) pinned = true;
+        }
+        return insecure && !pinned;
+    }
+
     static JSONObject outbound(String link) throws Exception {
         Uri uri = Uri.parse(link.trim());
         String scheme = uri.getScheme();
