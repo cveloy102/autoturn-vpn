@@ -8,8 +8,8 @@ android {
         applicationId 'app.autoturn.vpn'
         minSdk 31
         targetSdk 36
-        versionCode 34
-        versionName '2.0.1'
+        versionCode 35
+        versionName '2.0.2'
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
 

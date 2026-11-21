@@ -94,10 +94,8 @@ final class UpdateUi implements AppUpdater.Listener {
         if (release == null) return;
         updater.markOffered(release);
         dismiss();
-        String message = ready ? "APK проверен. Android попросит подтвердить установку.\nПрофили и настройки сохранятся." :
-                "Установлена " + BuildConfig.VERSION_NAME + ".\nНовая версия: " + release.version +
-                        " · " + Math.max(1, release.size / (1024 * 1024)) + " МБ\n\n" +
-                        (release.notes.isEmpty() ? "Доступно обновление AutoTurn." : release.notes);
+        CharSequence message = ready ? "APK проверен. Android попросит подтвердить установку.\nПрофили и настройки сохранятся." :
+                offerText(release);
         android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
         scroll.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
         TextView text = new TextView(activity);
@@ -112,6 +110,25 @@ final class UpdateUi implements AppUpdater.Listener {
                     if (ready) install(); else updater.download(release);
                 }).setNegativeButton("Позже", null).create();
         showStyled();
+    }
+    /** Version header plus release notes with Markdown turned into real bold text and bullets. */
+    private static CharSequence offerText(UpdateRelease release) {
+        android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder(
+                "Установлена " + BuildConfig.VERSION_NAME + ".\nНовая версия: " + release.version +
+                        " · " + Math.max(1, release.size / (1024 * 1024)) + " МБ\n\n");
+        ReleaseNotesText notes = ReleaseNotesText.parse(release.notes);
+        if (notes.text.isEmpty()) return text.append("Доступно обновление AutoTurn.");
+        int offset = text.length();
+        text.append(notes.text);
+        for (ReleaseNotesText.Range range : notes.ranges) {
+            int start = offset + range.start, end = offset + range.end;
+            text.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), start, end,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            if (range.style == ReleaseNotesText.HEADING)
+                text.setSpan(new android.text.style.RelativeSizeSpan(1.1f), start, end,
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return text;
     }
     private void install() {
         if (!activity.getPackageManager().canRequestPackageInstalls()) {
