@@ -569,10 +569,19 @@ public final class MainActivity extends Activity {
             else if (state.phase == AppUpdater.Phase.READY) text = "Установить " + release.version + " →";
             else text = "Доступна версия " + release.version + " →";
         }
-        setTextIfChanged(homeUpdate, text);
+        if (release != null) {
+            // Same green dot as the ONLINE badge: a new version is waiting.
+            text = "● " + text;
+            if (!homeUpdate.getText().toString().equals(text)) {
+                android.text.SpannableString marked = new android.text.SpannableString(text);
+                marked.setSpan(new android.text.style.ForegroundColorSpan(palette.online), 0, 1,
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                homeUpdate.setText(marked);
+            }
+        } else setTextIfChanged(homeUpdate, text);
         homeUpdate.setEnabled(release != null);
         homeUpdate.setTextColor(release != null ? NEON : MUTED);
-        homeUpdate.setContentDescription(text);
+        homeUpdate.setContentDescription(release != null ? text.substring(2) : text);
     }
 
     private Switch styledSwitch(String title, boolean checked) {
