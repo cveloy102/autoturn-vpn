@@ -27,6 +27,8 @@ import org.json.JSONObject;
 /** Independent of VPN settings and services. Android owns the persistent download. */
 final class AppUpdater {
     static final long DAY = 24 * 60 * 60 * 1000L;
+    /** Automatic check when the app is opened: at most once per hour. */
+    static final long CHECK_INTERVAL = 60 * 60 * 1000L;
     static final long MAX_APK_BYTES = 250 * 1024 * 1024L;
     enum Phase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, VERIFYING, READY, ERROR }
     interface Listener { void changed(State state); }
@@ -115,13 +117,16 @@ final class AppUpdater {
             if (current != null) current.changed(event);
         });
     }
-    static boolean isDue(long last, long now) { return last <= 0 || now < last || now - last >= DAY; }
+    static boolean isDue(long last, long now) { return isDue(last, now, DAY); }
+    static boolean isDue(long last, long now, long interval) {
+        return last <= 0 || now < last || now - last >= interval;
+    }
     synchronized void check(boolean manual) {
         if (state.phase == Phase.CHECKING) { if (manual) checkingManual = true; return; }
         if (state.phase == Phase.DOWNLOADING ||
                 state.phase == Phase.VERIFYING || state.phase == Phase.READY) return;
         long now = System.currentTimeMillis();
-        if (!manual && !isDue(prefs.getLong("last_check", 0), now)) return;
+        if (!manual && !isDue(prefs.getLong("last_check", 0), now, CHECK_INTERVAL)) return;
         prefs.edit().putLong("last_check", now).apply();
         checkingManual = manual;
         publish(Phase.CHECKING, null, -1, "Проверяем GitHub…", manual);

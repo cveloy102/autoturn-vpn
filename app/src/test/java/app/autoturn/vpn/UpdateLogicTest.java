@@ -59,4 +59,12 @@ public class UpdateLogicTest {
         assertFalse(AppUpdater.isDue(1000, 1000 + AppUpdater.DAY - 1));
         assertTrue(AppUpdater.isDue(1000, 1000 + AppUpdater.DAY));
     }
+
+    @Test public void hourlyCheckOnOpen() {
+        assertEquals(60 * 60 * 1000L, AppUpdater.CHECK_INTERVAL);
+        assertTrue(AppUpdater.isDue(0, 5, AppUpdater.CHECK_INTERVAL));
+        assertTrue(AppUpdater.isDue(100, 50, AppUpdater.CHECK_INTERVAL));
+        assertFalse(AppUpdater.isDue(1000, 1000 + AppUpdater.CHECK_INTERVAL - 1, AppUpdater.CHECK_INTERVAL));
+        assertTrue(AppUpdater.isDue(1000, 1000 + AppUpdater.CHECK_INTERVAL, AppUpdater.CHECK_INTERVAL));
+    }
 }
