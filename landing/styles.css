@@ -118,3 +118,32 @@ h1{font-family:var(--display);font-weight:900;font-size:clamp(44px,5.4vw,78px);l
   .stage .phone{width:min(260px,100%)}
 }
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.button{transition:none}}
+
+/* Catalog navigation and primary actions. */
+header nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: clamp(0.5rem, 1.9vw, 1.5rem);
+  row-gap: 0;
+}
+header nav a, footer .catalog-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 0.875rem;
+}
+header .catalog-link, footer .catalog-link { color: #e8e4d9; }
+header .catalog-link:hover, footer .catalog-link:hover { color: #ff655c; }
+main .button { border-radius: 0.55rem; }
+.catalog-link:focus-visible { outline: 2px solid #f0443e; outline-offset: 3px; }
+@media (max-width: 660px) {
+  header nav { grid-column: 1 / -1; flex-basis: 100%; width: 100%; }
+}
+
+.top nav { display: flex; }
+@media (max-width: 660px) {
+  .top { flex-wrap: wrap; }
+  .top nav { display: flex; order: 3; }
+  .top nav a[href="#features"], .top nav a[target="_blank"] { display: none; }
+}

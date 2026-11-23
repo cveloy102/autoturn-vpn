@@ -10,7 +10,7 @@ Android-приложение, которое само включает VPN, ко
 [![Android](https://img.shields.io/badge/Android-12%2B-222222?logo=android&logoColor=white)](docs/usage.md#установка)
 [![Release](https://img.shields.io/github/v/release/cveloy102/autoturn-vpn?color=f43d38&label=release)](https://github.com/cveloy102/autoturn-vpn/releases/latest)
 
-**[Скачать APK](https://github.com/cveloy102/autoturn-vpn/releases/latest)** · **[Сайт](https://cveloy102.github.io/autoturn-vpn/)** · **[Инструкция](docs/usage.md)** · **[Что нового](CHANGELOG.md)** · **[Сообщить об ошибке](https://github.com/cveloy102/autoturn-vpn/issues/new/choose)**
+**[APK в последнем релизе](https://github.com/cveloy102/autoturn-vpn/releases/latest)** · **[Сайт](https://cveloy102.github.io/autoturn-vpn/)** · **[Инструкция](docs/usage.md)** · **[Что нового](CHANGELOG.md)** · **[Сообщить об ошибке](https://github.com/cveloy102/autoturn-vpn/issues/new/choose)** · [Каталог приложений](https://cveloy102.github.io/#autoturn)
 
 <table><tr>
 <td align="center"><img src="docs/images/home-online.png" width="240" alt="AutoTurn 2.0: главный экран, VPN на связи"><br>Подключение</td>
