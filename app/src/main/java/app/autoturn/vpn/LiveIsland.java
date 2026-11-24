@@ -24,7 +24,11 @@ import java.util.List;
 final class LiveIsland {
     static final String CHANNEL = "live-status";
     static final int ID = 101;
-    static final long DONE_VISIBLE_MS = 4_000;
+    // Long enough to read where AutoTurn connected; then the island leaves by itself.
+    static final long DONE_VISIBLE_MS = 10_000;
+    // Profile names are user text of any length: keep the title and the island chip short.
+    static final int TITLE_NAME_MAX = 20;
+    static final int CHIP_MAX = 8;
     // Long waits (no network for hours) must not turn into a permanent island.
     static final long WAIT_VISIBLE_MS = 10 * 60_000;
     static final long CAPTCHA_VISIBLE_MS = 2 * 60_000;
@@ -65,10 +69,14 @@ final class LiveIsland {
                     "|" + indeterminate + "|" + countdownTo;
         }
 
-        static Content connecting(String profileName, List<Boolean> failed, int current) {
+        static Content connecting(String profileName, String protocol, List<Boolean> failed, int current) {
             int total = failed.size();
             boolean single = total < 2 || current < 0;
-            return new Content(Kind.CONNECTING, "Подключаемся", "Пробуем " + profileName,
+            int failedCount = 0;
+            for (boolean f : failed) if (f) failedCount++;
+            String text = (single ? "" : "Профиль " + (current + 1) + " из " + total + " · ") + protocol +
+                    (failedCount > 0 ? " · не ответили: " + failedCount : "");
+            return new Content(Kind.CONNECTING, "Подключаемся · " + shorten(profileName, TITLE_NAME_MAX), text,
                     single ? "VPN" : (current + 1) + "/" + total, failed, single ? -1 : current, single, 0, 0);
         }
 
@@ -92,10 +100,25 @@ final class LiveIsland {
                     "VPN!", Collections.emptyList(), -1, false, 0, WAIT_VISIBLE_MS);
         }
 
-        static Content done(String detail) {
-            return new Content(Kind.DONE, "На связи", detail == null || detail.isEmpty() ? "VPN проверен" : detail,
-                    "Готово", Collections.emptyList(), -1, false, 0, DONE_VISIBLE_MS);
+        static Content done(String profileName, String protocol) {
+            boolean named = profileName != null && !profileName.trim().isEmpty();
+            return new Content(Kind.DONE, named ? "На связи · " + shorten(profileName, TITLE_NAME_MAX) : "На связи",
+                    "Доступ проверен" + (protocol == null || protocol.isEmpty() ? "" : " · " + protocol),
+                    named ? shorten(profileName, CHIP_MAX) : "Готово", Collections.emptyList(), -1, false, 0, DONE_VISIBLE_MS);
         }
+
+        /** One line, at most max characters (code points), with an ellipsis when cut. */
+        static String shorten(String value, int max) {
+            String line = value == null ? "" : value.replaceAll("\\s+", " ").trim();
+            if (line.codePointCount(0, line.length()) <= max) return line;
+            return line.substring(0, line.offsetByCodePoints(0, max - 1)).trim() + "…";
+        }
+    }
+
+    static String protocol(Profile profile) {
+        if (profile == null) return "";
+        return Profile.QWDTT.equals(profile.type) ? "qWDTT · VK TURN" : Profile.VLESS.equals(profile.type) ? "VLESS · Reality" :
+                Profile.HYSTERIA2.equals(profile.type) ? "Hysteria 2" : "AmneziaWG";
     }
 
     private final Context context;
@@ -161,9 +184,9 @@ final class LiveIsland {
     }
 
     /** Ends a transition with «На связи»; ignored when nothing was shown (routine health checks). */
-    void done(String detail) {
+    void done(Profile profile) {
         if (!showing() || shownKind == Kind.DONE) return;
-        show(Content.done(detail));
+        show(Content.done(profile == null ? null : profile.name, protocol(profile)));
     }
 
     void clear() {
@@ -177,7 +200,7 @@ final class LiveIsland {
         Intent open = new Intent(context, MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         Notification.Builder builder = new Notification.Builder(context, CHANNEL)
-                .setSmallIcon(R.drawable.ic_vpn_tile)
+                .setSmallIcon(ring(content))
                 .setContentTitle(content.title)
                 .setContentText(content.text)
                 .setOngoing(true)  // Live Updates must be ongoing; DONE leaves by timeout
@@ -211,6 +234,50 @@ final class LiveIsland {
             builder.setStyle(hasProgress ? progress(content) : new Notification.BigTextStyle().bigText(content.text));
         }
         return builder.build();
+    }
+
+    /**
+     * The island's left icon: the A monogram inside a ring with one segment per profile
+     * (failed red, current white, waiting dim), like the mockup. The system may tint it.
+     */
+    private Icon ring(Content content) {
+        try {
+            int size = 96;
+            android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+            android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            paint.setStyle(android.graphics.Paint.Style.STROKE);
+            paint.setStrokeWidth(9);
+            paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);
+            android.graphics.RectF box = new android.graphics.RectF(6, 6, size - 6, size - 6);
+            int dim = 0x59FFFFFF;
+            if (content.kind == Kind.CONNECTING && content.current >= 0) {
+                int n = content.failedSegments.size();
+                float gap = n > 1 ? 22f : 0f, sweep = 360f / n - gap;
+                for (int i = 0; i < n; i++) {
+                    paint.setColor(content.failedSegments.get(i) ? RED : i == content.current ? 0xFFFFFFFF :
+                            i < content.current ? GREEN : dim);
+                    canvas.drawArc(box, -90 + i * 360f / n + gap / 2, sweep, false, paint);
+                }
+            } else if (content.kind == Kind.CONNECTING || content.kind == Kind.NO_NETWORK) {
+                paint.setColor(dim);
+                canvas.drawArc(box, 0, 360, false, paint);
+                paint.setColor(0xFFFFFFFF);
+                canvas.drawArc(box, -90, 100, false, paint);
+            } else {
+                paint.setColor(content.kind == Kind.DONE ? GREEN :
+                        content.kind == Kind.CAPTCHA || content.kind == Kind.PERMISSION ? RED : dim);
+                canvas.drawArc(box, 0, 360, false, paint);
+            }
+            android.graphics.drawable.Drawable mark = context.getDrawable(R.drawable.ic_vpn_tile);
+            if (mark != null) {
+                mark.setBounds(28, 28, size - 28, size - 28);
+                mark.draw(canvas);
+            }
+            return Icon.createWithBitmap(bitmap);
+        } catch (RuntimeException e) {
+            return Icon.createWithResource(context, R.drawable.ic_vpn_tile);
+        }
     }
 
     @android.annotation.TargetApi(36)

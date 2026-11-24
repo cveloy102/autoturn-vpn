@@ -76,6 +76,8 @@ public final class AutomationService extends Service {
     private LiveIsland island;
     // Profiles that failed during the transition the island is showing (red segments).
     private final java.util.Set<String> islandFailed = new java.util.HashSet<>();
+    // The profile the island last said it was connecting to, for «На связи · name».
+    private Profile islandProfile;
     private BroadcastReceiver statusReceiver;
     private final Tunnel tunnel = new Tunnel() {
         @Override public String getName() { return "AutoTurn"; }
@@ -570,7 +572,7 @@ public final class AutomationService extends Service {
                 StatusStore.set(this, StatusStore.ON, "VPN проверен · " + store.activeProfile().name +
                         (locationHidesHome(store) ? " · включите геолокацию, чтобы узнавать дом" : ""));
                 islandFailed.clear();
-                island.done(StatusStore.detail(this));
+                island.done(store.activeProfile());
                 scheduleHealth(HealthSchedule.healthyInterval(++healthyStreak));
             } else if (result == ConnectionProbe.Result.NO_NETWORK) {
                 consecutiveTrafficFailures = 0;
@@ -668,7 +670,8 @@ public final class AutomationService extends Service {
             failed.add(islandFailed.contains(ordered.get(i).id));
             if (ordered.get(i).id.equals(profile.id)) current = i;
         }
-        island.show(LiveIsland.Content.connecting(profile.name, failed, current));
+        islandProfile = profile;
+        island.show(LiveIsland.Content.connecting(profile.name, LiveIsland.protocol(profile), failed, current));
     }
 
     private void clearIsland() {
@@ -684,7 +687,7 @@ public final class AutomationService extends Service {
         if (StatusStore.OFF.equals(state)) clearIsland();
         else if (StatusStore.ON.equals(state) && !detail.startsWith("Проверяем")) {
             islandFailed.clear();
-            island.done(detail);
+            island.done(islandProfile);
         }
     }
 
