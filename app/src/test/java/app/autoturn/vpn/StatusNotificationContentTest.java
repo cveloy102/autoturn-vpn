@@ -39,7 +39,7 @@ public class StatusNotificationContentTest {
     @Test public void manualOnOffersOffAndReturnToAuto() {
         StatusNotification.Content c = StatusNotification.Content.of(StatusStore.ON, "VPN проверен · hysteria",
                 SecureStore.MANUAL_ON, at(25, 3, 43), true, false, true, NOW);
-        assertEquals("Включён вручную до 03:43", c.mode);
+        assertEquals("Вручную до 03:43", c.mode);
         assertEquals(Arrays.asList("Выключить VPN", "Вернуть Авто"), c.actions);
         assertFalse(c.toggleTurnsOn);
     }
@@ -49,7 +49,7 @@ public class StatusNotificationContentTest {
         StatusNotification.Content c = StatusNotification.Content.of(StatusStore.ON, "VPN проверен · a",
                 SecureStore.MANUAL_OFF, 0, true, false, true, NOW);
         assertTrue(c.toggleTurnsOn);
-        assertEquals("Выключен вручную", c.mode);
+        assertEquals("Выключен", c.mode);
     }
 
     @Test public void deadlineOnAnotherDayShowsTheDate() {
@@ -62,6 +62,13 @@ public class StatusNotificationContentTest {
         assertEquals("Авто · защита", c.mode);
         assertEquals("Следим за домашней сетью", c.text);
         assertTrue(c.actions.isEmpty());
+    }
+
+    @Test public void headerStaysShort() {
+        // Longest case: protected mode with a deadline on another day. The shield is dropped there.
+        String mode = StatusNotification.Content.mode(SecureStore.MANUAL_OFF, at(26, 9, 0), true, true, NOW);
+        assertEquals("Выключен до 26.11 09:00", mode);
+        assertTrue(mode, mode.length() <= 25);
     }
 
     @Test public void automationOffIsNamed() {

@@ -80,11 +80,13 @@ final class StatusNotification {
         }
 
         static String mode(String manualMode, long manualUntil, boolean automation, boolean protectedMode, long now) {
-            String mode = SecureStore.MANUAL_ON.equals(manualMode) ? "Включён вручную" :
-                    SecureStore.MANUAL_OFF.equals(manualMode) ? "Выключен вручную" :
+            // Short: the shade header cuts this line after about 25 characters.
+            String mode = SecureStore.MANUAL_ON.equals(manualMode) ? "Вручную" :
+                    SecureStore.MANUAL_OFF.equals(manualMode) ? "Выключен" :
                     automation || protectedMode ? "Авто" : "Автоматика выключена";
-            if (!SecureStore.MANUAL_AUTO.equals(manualMode) && manualUntil > 0) mode += " до " + until(manualUntil, now);
-            return protectedMode ? mode + " · защита" : mode;
+            boolean deadline = !SecureStore.MANUAL_AUTO.equals(manualMode) && manualUntil > 0;
+            if (deadline) mode += " до " + until(manualUntil, now);
+            return protectedMode && !deadline ? mode + " · защита" : mode;
         }
 
         static String until(long when, long now) {
