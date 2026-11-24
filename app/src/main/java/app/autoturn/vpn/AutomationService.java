@@ -73,6 +73,10 @@ public final class AutomationService extends Service {
     private long pauseUntil;
     private EndpointUpdates endpointUpdates;
     private GoBackend backend;
+    private LiveIsland island;
+    // Profiles that failed during the transition the island is showing (red segments).
+    private final java.util.Set<String> islandFailed = new java.util.HashSet<>();
+    private BroadcastReceiver statusReceiver;
     private final Tunnel tunnel = new Tunnel() {
         @Override public String getName() { return "AutoTurn"; }
         @Override public void onStateChange(State state) { }
@@ -94,6 +98,13 @@ public final class AutomationService extends Service {
         startForeground(100, notification("Следим за домашней сетью"));
         connectivity = getSystemService(ConnectivityManager.class);
         endpointUpdates = new EndpointUpdates(this,false);
+        island = new LiveIsland(this);
+        // Tunnels in other processes (Xray, protected mode) report "connected" only via StatusStore.
+        statusReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) { enqueue(AutomationService.this::statusChanged); }
+        };
+        // Android before 13 ignores the flag; the broadcast is package-scoped anyway.
+        registerReceiver(statusReceiver, new IntentFilter(StatusStore.ACTION_CHANGED), Context.RECEIVER_NOT_EXPORTED);
         wakeReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context context, Intent intent) {
                 enqueue(() -> {
@@ -186,12 +197,14 @@ public final class AutomationService extends Service {
     @Override public void onDestroy() {
         if(endpointUpdates!=null)endpointUpdates.close();
         if (wakeReceiver != null) unregisterReceiver(wakeReceiver);
+        if (statusReceiver != null) unregisterReceiver(statusReceiver);
         handler.removeCallbacks(delayedApply);
         handler.removeCallbacks(returnToAuto);
         handler.removeCallbacks(healthTick);
         if (callback != null) connectivity.unregisterNetworkCallback(callback);
         if (vpnCallback != null) connectivity.unregisterNetworkCallback(vpnCallback);
         worker.execute(() -> {
+            clearIsland();
             try {
                 SecureStore store = new SecureStore(this);
                 if (needsProtection(store)) {
@@ -227,6 +240,7 @@ public final class AutomationService extends Service {
         try {
             SecureStore.expireManualMode(this, System.currentTimeMillis());
             store = new SecureStore(this);
+            island.setEnabled(store.liveIsland);
             handler.removeCallbacks(returnToAuto);
             if (!SecureStore.MANUAL_AUTO.equals(store.manualMode) && store.manualUntil > 0)
                 handler.postDelayed(returnToAuto, Math.max(1, store.manualUntil - System.currentTimeMillis()));
@@ -234,6 +248,7 @@ public final class AutomationService extends Service {
             if (!guardEnabled(store)) clearHealth();
             if (!store.protectedMode && !store.automation && SecureStore.MANUAL_AUTO.equals(store.manualMode)) {
                 guardProfileId = "";
+                clearIsland();
                 stopSelfResult(decisionStartId); return;
             }
             Profile candidate = store.activeProfile();
@@ -245,6 +260,7 @@ public final class AutomationService extends Service {
                 }
                 clearHealth();
                 guardProfileId = "";
+                clearIsland();
                 updateNotification(needsProtection(store) ? "VPN остановлен · защита активна" : "VPN выключен вручную");
                 return;
             }
@@ -265,6 +281,7 @@ public final class AutomationService extends Service {
                 }
                 clearHealth();
                 guardProfileId = "";
+                clearIsland();
                 return;
             }
             boolean atHome = store.isHomeSsid(ssid);
@@ -273,6 +290,7 @@ public final class AutomationService extends Service {
                 stopCurrent();
                 clearHealth();
                 guardProfileId = "";
+                clearIsland();
                 StatusStore.set(this, StatusStore.OFF, "Домашний Wi-Fi · VPN выключен");
                 updateNotification("VPN выключен дома");
                 return;
@@ -290,6 +308,7 @@ public final class AutomationService extends Service {
                 stopCurrent();
                 clearHealth();
                 StatusStore.set(this, StatusStore.ERROR, "Разрешение VPN отозвано · откройте AutoTurn");
+                island.show(LiveIsland.Content.permissionLost());
                 return;
             }
             final Profile profile = candidate;
@@ -318,6 +337,7 @@ public final class AutomationService extends Service {
                             ssid.isEmpty() && !hasPhysicalWifi() ? "Мобильная сеть · подключаем VPN" :
                             ssid.isEmpty() ? "Сеть не определена · подключаем VPN" :
                                     "Вне домашней сети · подключаемся");
+            showConnecting(store, profile);
             if (store.protectedMode) {
                 runningProtected = true;
                 runningType = profile.type;
@@ -398,6 +418,7 @@ public final class AutomationService extends Service {
             stopCurrent(store.protectedMode);
             clearHealth();
             guardProfileId = "";
+            islandFailed.clear();
             applyDecision();
         } catch (Exception ignored) {
             StatusStore.set(this, StatusStore.ERROR, "Не удалось начать очередь заново");
@@ -481,6 +502,7 @@ public final class AutomationService extends Service {
         if (activeProbe != null) return;
         try {
             SecureStore store = new SecureStore(this);
+            island.setEnabled(store.liveIsland);
             if (!guardEnabled(store) || !wantsVpn(store)) return;
             long remainingPause = pauseUntil - SystemClock.elapsedRealtime();
             if (remainingPause > 0) {
@@ -501,6 +523,7 @@ public final class AutomationService extends Service {
             final boolean confirmation = consecutiveTrafficFailures > 0;
             if (qwdtt && QwdttState.pending(this, runningId)) {
                 StatusStore.set(this, StatusStore.CONNECTING, "qWDTT · требуется капча VK — откройте AutoTurn");
+                island.show(LiveIsland.Content.captcha());
                 scheduleHealth(2000);
                 return;
             }
@@ -531,6 +554,7 @@ public final class AutomationService extends Service {
         if (result != ConnectionProbe.Result.HEALTHY) healthyStreak = 0;
         try {
             SecureStore store = new SecureStore(this);
+            island.setEnabled(store.liveIsland);
             if (!guardEnabled(store) || !wantsVpn(store) || !runningId.equals(store.activeId)) {
                 applyDecision();
                 return;
@@ -545,20 +569,26 @@ public final class AutomationService extends Service {
                 pauseUntil = 0;
                 StatusStore.set(this, StatusStore.ON, "VPN проверен · " + store.activeProfile().name +
                         (locationHidesHome(store) ? " · включите геолокацию, чтобы узнавать дом" : ""));
+                islandFailed.clear();
+                island.done(StatusStore.detail(this));
                 scheduleHealth(HealthSchedule.healthyInterval(++healthyStreak));
             } else if (result == ConnectionProbe.Result.NO_NETWORK) {
                 consecutiveTrafficFailures = 0;
                 StatusStore.set(this, StatusStore.CONNECTING, "Нет сети · ждём восстановления");
+                // A verified VPN losing the network (metro, lift) is not worth an island each time.
+                if (!verified || island.showing()) island.show(LiveIsland.Content.noNetwork());
                 scheduleHealth(2000);
             } else if (result == ConnectionProbe.Result.VPN_PERMISSION_LOST) {
                 stopCurrent();
                 StatusStore.set(this, StatusStore.ERROR, "Разрешение VPN отозвано · откройте AutoTurn");
+                island.show(LiveIsland.Content.permissionLost());
             } else if ((result == ConnectionProbe.Result.VPN_MISSING || result == ConnectionProbe.Result.FAILED) && !verified &&
                     SystemClock.elapsedRealtime() - startedAt <
                             (Profile.QWDTT.equals(runningType) ? 310_000 : START_GRACE_MS)) {
                 // A pending VPN is different from a missing physical network. In particular,
                 // do not retain an earlier NO_NETWORK label throughout qWDTT's startup window.
                 StatusStore.set(this, StatusStore.CONNECTING, "Подключаем VPN · " + store.activeProfile().name);
+                showConnecting(store, store.activeProfile());
                 scheduleHealth(1000);
             } else {
                 if (result == ConnectionProbe.Result.FAILED && ++consecutiveTrafficFailures < 2) {
@@ -593,6 +623,8 @@ public final class AutomationService extends Service {
         Profile current = store.activeProfile();
         if (current == null) return;
         if (!current.enabled) { applyDecision(); return; }
+        island.setEnabled(store.liveIsland);
+        islandFailed.add(current.id);
         if(store.protectedMode)startService(new Intent(this,ProtectedVpnService.class)
                 .setAction(ProtectedVpnService.ACTION_REFRESH_ENDPOINT).putExtra(XrayVpnService.EXTRA_PROFILE_ID,current.id));
         else if(endpointUpdates!=null)endpointUpdates.failed(current.id);
@@ -613,6 +645,8 @@ public final class AutomationService extends Service {
             pauseUntil = SystemClock.elapsedRealtime() + ALL_FAILED_PAUSE_MS;
             if (store.protectedMode) holdProtection("Трафик заблокирован · профили недоступны, повторим через 15 секунд");
             else StatusStore.set(this, StatusStore.ERROR, "Профили недоступны · повторим через 15 секунд");
+            islandFailed.clear();
+            island.show(LiveIsland.Content.pause(System.currentTimeMillis() + ALL_FAILED_PAUSE_MS));
             updateNotification("Ожидаем повторного подключения VPN");
             scheduleHealth(ALL_FAILED_PAUSE_MS);
             return;
@@ -622,6 +656,36 @@ public final class AutomationService extends Service {
         StatusStore.set(this, StatusStore.CONNECTING, detail);
         updateNotification(detail);
         applyDecision();
+    }
+
+    /** Worker thread. Shows which profile of the queue is being tried, with failed ones in red. */
+    private void showConnecting(SecureStore store, Profile profile) {
+        if (profile == null) return;
+        java.util.List<Profile> ordered = store.connectionProfiles();
+        java.util.List<Boolean> failed = new java.util.ArrayList<>();
+        int current = -1;
+        for (int i = 0; i < ordered.size(); i++) {
+            failed.add(islandFailed.contains(ordered.get(i).id));
+            if (ordered.get(i).id.equals(profile.id)) current = i;
+        }
+        island.show(LiveIsland.Content.connecting(profile.name, failed, current));
+    }
+
+    private void clearIsland() {
+        islandFailed.clear();
+        if (island != null) island.clear();
+    }
+
+    /** Worker thread. Catches "connected" and "off" reported by tunnels in other processes. */
+    private void statusChanged() {
+        if (!island.showing()) return;
+        String state = StatusStore.state(this);
+        String detail = StatusStore.detail(this);
+        if (StatusStore.OFF.equals(state)) clearIsland();
+        else if (StatusStore.ON.equals(state) && !detail.startsWith("Проверяем")) {
+            islandFailed.clear();
+            island.done(detail);
+        }
     }
 
     private Profile nextProfile(SecureStore store, String currentId) {

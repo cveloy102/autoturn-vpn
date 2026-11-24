@@ -45,6 +45,8 @@ final class SecureStore {
     boolean keepAtHome = false;
     boolean connectionGuard = true;
     boolean protectedMode = false;
+    // Opt-in: temporary connection statuses in the HyperOS/OxygenOS island (LiveIsland).
+    boolean liveIsland = false;
     String theme = THEME_DARK;
     String manualMode = MANUAL_AUTO;
     int autoReturnHours = 2;
@@ -369,6 +371,7 @@ final class SecureStore {
         json.put("keepAtHome", keepAtHome);
         json.put("connectionGuard", connectionGuard);
         json.put("protectedMode", protectedMode);
+        json.put("liveIsland", liveIsland);
         json.put("theme", theme);
         json.put("manualMode", manualMode);
         json.put("controlSchema", 1);
@@ -541,6 +544,7 @@ final class SecureStore {
         keepAtHome = json.optBoolean("keepAtHome", false);
         connectionGuard = json.optBoolean("connectionGuard", true);
         protectedMode = json.optBoolean("protectedMode", false);
+        liveIsland = json.optBoolean("liveIsland", false);
         theme = normalizeTheme(json.optString("theme", THEME_DARK));
         manualMode = json.optString("manualMode", MANUAL_AUTO);
         if (!MANUAL_ON.equals(manualMode) && !MANUAL_OFF.equals(manualMode)) manualMode = MANUAL_AUTO;

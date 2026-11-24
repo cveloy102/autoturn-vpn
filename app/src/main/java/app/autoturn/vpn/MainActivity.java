@@ -56,6 +56,7 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_RESTART_VPN = 15;
     private static final int REQUEST_LOCATION = 12;
     private static final int REQUEST_EXPORT = 16;
+    private static final int REQUEST_NOTIFICATIONS = 17;
     private int BG;
     private int CARD;
     private int NEON;
@@ -624,7 +625,8 @@ public final class MainActivity extends Activity {
             click.onClick(v);
             // Permission requests may defer the action; reflect the saved setting meanwhile.
             control.setChecked("Автоматика".equals(title) ? store.automation :
-                    "Защищённый режим".equals(title) ? store.protectedMode : store.connectionGuard || store.protectedMode);
+                    "Защищённый режим".equals(title) ? store.protectedMode :
+                    "Статусы в острове".equals(title) ? store.liveIsland : store.connectionGuard || store.protectedMode);
         });
         root.addView(control, new LinearLayout.LayoutParams(-1, -2));
     }
@@ -694,6 +696,10 @@ public final class MainActivity extends Activity {
                 "Через " + store.autoReturnHours + " ч →", false, v -> showAutoReturnChooser()));
         gap(root, 8);
         root.addView(label("После ручного включения или выключения.\nНовая команда начинает отсчёт заново.\nИзменение времени тоже перезапускает отсчёт.\nПри энергосбережении возврат может задержаться.", 12, MUTED, false));
+        gap(root, 18);
+        TerminalUi.divider(root, palette.divider);
+        gap(root, 18);
+        renderLiveIsland(root);
         gap(root, 18);
         TerminalUi.divider(root, palette.divider);
         gap(root, 18);
@@ -1055,6 +1061,67 @@ public final class MainActivity extends Activity {
             nav.addView(item, size);
         }
         return bar;
+    }
+
+    private void renderLiveIsland(LinearLayout root) {
+        terminalToggle(root, "Статусы в острове", store.liveIsland, v -> toggleLiveIsland());
+        root.addView(label("Подключение, капча VK и пауза перед повтором.\n" +
+                "HyperOS и OxygenOS показывают их в острове,\nAndroid 16 — в чипе у часов.\n" +
+                "Статус уходит сам, когда переход закончился.", 12, MUTED, false));
+        if (!store.liveIsland) return;
+        gap(root, 10);
+        LiveIsland.Availability availability = LiveIsland.availability(this);
+        String hint;
+        Intent fix = null;
+        switch (availability) {
+            case NOTIFICATIONS_OFF:
+                hint = "! Уведомления AutoTurn выключены. Без них острова не будет.";
+                fix = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                break;
+            case CHANNEL_OFF:
+                hint = "! Канал «Статусы подключения» выключен в настройках Android.";
+                fix = new Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, LiveIsland.CHANNEL);
+                break;
+            case PROMOTION_OFF:
+                hint = "! Статусы в реальном времени выключены для AutoTurn.\nБудут обычные уведомления, без острова.";
+                if (Build.VERSION.SDK_INT >= 36)
+                    fix = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS);
+                break;
+            case UNSUPPORTED:
+                hint = "◌ Нужен Android 16. Здесь статусы будут обычными уведомлениями.";
+                break;
+            default:
+                hint = "● Готово. Если остров не появляется, проверьте его настройки в оболочке.";
+        }
+        root.addView(label(hint, 12, availability == LiveIsland.Availability.READY ? palette.online :
+                availability == LiveIsland.Availability.UNSUPPORTED ? MUTED : NEON, false));
+        if (fix != null) {
+            final Intent open = fix.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName());
+            gap(root, 10);
+            root.addView(action("Открыть настройки →", false, v -> {
+                try { startActivity(open); }
+                catch (Exception e) {
+                    startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName()));
+                }
+            }));
+        }
+    }
+
+    private void toggleLiveIsland() {
+        try {
+            store.liveIsland = !store.liveIsland;
+            store.save();
+            if (store.liveIsland) {
+                LiveIsland.ensureChannel(this);
+                if (Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+            } else getSystemService(android.app.NotificationManager.class).cancel(LiveIsland.ID);
+            refreshAutomation();
+            render();
+        } catch (Exception e) { error("Не удалось изменить статусы в острове"); }
     }
 
     private void toggleConnectionGuard() {
