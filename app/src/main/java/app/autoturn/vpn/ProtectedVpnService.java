@@ -36,8 +36,6 @@ public final class ProtectedVpnService extends VpnService {
     static final String ACTION_STOP = "app.autoturn.vpn.PROTECTED_STOP";
     static final String ACTION_REFRESH_ENDPOINT = "app.autoturn.vpn.PROTECTED_REFRESH_ENDPOINT";
     private EndpointUpdates endpointUpdates;
-    private static final String CHANNEL = "protected-vpn";
-    private static final int NOTIFICATION = 104;
     // The native Xray core is process-global. Serialize even across recreated Service instances.
     private static final ExecutorService worker = Executors.newSingleThreadExecutor();
     private static ProtectedVpnService owner;
@@ -51,9 +49,7 @@ public final class ProtectedVpnService extends VpnService {
 
     @Override public void onCreate() {
         super.onCreate();
-        getSystemService(NotificationManager.class).createNotificationChannel(new NotificationChannel(
-                CHANNEL, "Защищённый VPN", NotificationManager.IMPORTANCE_LOW));
-        startForeground(NOTIFICATION, notification("Устанавливаем защиту"));
+        startForeground(StatusNotification.ID, StatusNotification.build(this));
         endpointUpdates=new EndpointUpdates(this,true);
     }
 
@@ -73,11 +69,11 @@ public final class ProtectedVpnService extends VpnService {
         String id = intent == null ? null : intent.getStringExtra(XrayVpnService.EXTRA_PROFILE_ID);
         String attemptId = intent == null ? null : intent.getStringExtra(XrayVpnService.EXTRA_ATTEMPT_ID);
         String blockedDetail = intent == null ? null : intent.getStringExtra("blockedDetail");
-        startForeground(NOTIFICATION, notification("Защищённый режим · ожидаем VPN"));
+        startForeground(StatusNotification.ID, StatusNotification.build(this));
         worker.execute(() -> {
             if (command != generation) return;
             if (ACTION_STOP.equals(action)) {
-                releaseOwned(); stopSelfResult(startId); return;
+                releaseOwned(); stopForeground(STOP_FOREGROUND_DETACH); stopSelfResult(startId); return;
             }
             adopt();
             if (ACTION_START.equals(action)) startEngine(id, command, attemptId);
@@ -132,7 +128,7 @@ public final class ProtectedVpnService extends VpnService {
         if (command != generation) return;
         try {
             SecureStore store = new SecureStore(this);
-            if (!barrierWanted(store)) { releaseOwned(); stopSelf(); return; }
+            if (!barrierWanted(store)) { releaseOwned(); stopForeground(STOP_FOREGROUND_DETACH); stopSelf(); return; }
             stopEngine();
             if (tunnel == null) ensureTunnel(store, null, isQwdtt(store.activeProfile()));
             Config config = awgConfig(store.activeProfile());
@@ -199,8 +195,7 @@ public final class ProtectedVpnService extends VpnService {
             }
             if (!current(id, command)) { hold(command); return; }
             StatusStore.set(this, StatusStore.CONNECTING, "Защищённый режим · проверяем " + profile.name);
-            getSystemService(NotificationManager.class).notify(NOTIFICATION,
-                    notification("Защита активна · " + profile.name));
+            showStatus();
         } catch (Exception e) {
             stopEngine();
             try {
@@ -310,13 +305,13 @@ public final class ProtectedVpnService extends VpnService {
     private void blocked(String detail) {
         if (tunnel == null) { reportBarrierFailure(); return; }
         StatusStore.set(this, StatusStore.BLOCKED, detail);
-        getSystemService(NotificationManager.class).notify(NOTIFICATION, notification(detail));
+        showStatus();
     }
 
     private void reportBarrierFailure() {
         String detail = "Не удалось установить защиту · откройте AutoTurn";
         StatusStore.set(this, StatusStore.ERROR, detail);
-        getSystemService(NotificationManager.class).notify(NOTIFICATION, notification(detail));
+        showStatus();
     }
 
     private void refreshAutomation() {
@@ -328,12 +323,9 @@ public final class ProtectedVpnService extends VpnService {
         wakeLock.setReferenceCounted(false); wakeLock.acquire();
     }
 
-    private Notification notification(String detail) {
-        PendingIntent open = PendingIntent.getActivity(this, 104, new Intent(this, MainActivity.class),
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(this, CHANNEL).setContentTitle("AutoTurn · Защищённый режим")
-                .setContentText(detail).setSmallIcon(R.drawable.ic_stat_autoturn).setColor(TerminalUi.NOTIFICATION_COLOR)
-                .setContentIntent(open).setOngoing(true).build();
+    /** Shared status card; AutomationService normally keeps it current, but it may be stopped. */
+    private void showStatus() {
+        getSystemService(NotificationManager.class).notify(StatusNotification.ID, StatusNotification.build(this));
     }
 
     @Override public void onRevoke() {

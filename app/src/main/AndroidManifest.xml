@@ -44,6 +44,7 @@
         <activity android:name=".QwdttCaptchaActivity" android:exported="false"
             android:screenOrientation="portrait"
             android:excludeFromRecents="true" android:enableOnBackInvokedCallback="true" />
+        <receiver android:name=".NotificationActionReceiver" android:exported="false" />
         <service android:name=".AutomationService"
             android:exported="false"
             android:foregroundServiceType="specialUse">

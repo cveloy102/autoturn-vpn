@@ -23,7 +23,8 @@ import java.util.List;
  */
 final class LiveIsland {
     static final String CHANNEL = "live-status";
-    static final int ID = 101;
+    // 100 is the status card, 103 the qWDTT captcha prompt.
+    static final int ID = 110;
     // Long enough to read where AutoTurn connected; then the island leaves by itself.
     static final long DONE_VISIBLE_MS = 10_000;
     // Profile names are user text of any length: keep the title and the island chip short.

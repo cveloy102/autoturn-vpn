@@ -27,7 +27,6 @@ public final class XrayVpnService extends VpnService {
     static final String ACTION_CAPTCHA = "app.autoturn.vpn.QWDTT_CAPTCHA";
     static final String EXTRA_PROFILE_ID = "profileId";
     static final String EXTRA_ATTEMPT_ID = "attemptId";
-    private static final String CHANNEL = "xray";
     // libXray has one native core per process. Service instances must share its queue.
     private static final ExecutorService worker = Executors.newSingleThreadExecutor();
     private static XrayVpnService coreOwner;
@@ -38,9 +37,7 @@ public final class XrayVpnService extends VpnService {
 
     @Override public void onCreate() {
         super.onCreate();
-        getSystemService(NotificationManager.class).createNotificationChannel(
-                new NotificationChannel(CHANNEL, "Xray VPN", NotificationManager.IMPORTANCE_LOW));
-        startForeground(101, notification("Подключаем VPN"));
+        startForeground(StatusNotification.ID, StatusNotification.build(this));
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -53,11 +50,12 @@ public final class XrayVpnService extends VpnService {
         }
         long commandGeneration = ++requestedGeneration;
         if (ACTION_STOP.equals(intent.getAction())) {
-            worker.execute(() -> { stopTunnel(); stopSelfResult(startId); });
+            // Keep the shared status card on screen; AutomationService updates it next.
+            worker.execute(() -> { stopTunnel(); stopForeground(STOP_FOREGROUND_DETACH); stopSelfResult(startId); });
             return START_NOT_STICKY;
         }
         if (ACTION_START.equals(intent.getAction())) {
-            startForeground(101, notification("Подключаем VPN"));
+            startForeground(StatusNotification.ID, StatusNotification.build(this));
             String id = intent.getStringExtra(EXTRA_PROFILE_ID);
             String attemptId = intent.getStringExtra(EXTRA_ATTEMPT_ID);
             worker.execute(() -> startTunnel(id, commandGeneration, attemptId));
@@ -164,15 +162,12 @@ public final class XrayVpnService extends VpnService {
             boolean checking = store.connectionGuard;
             StatusStore.set(this, checking ? StatusStore.CONNECTING : StatusStore.ON,
                     checking ? protocolName + " · проверяем соединение" : protocolName + " включён");
-            getSystemService(NotificationManager.class).notify(101,
-                    notification(checking ? "Проверяем " + protocolName : protocolName + " включён"));
         } catch (Exception e) {
             stopTunnel();
             try { if (!currentRequest(id, commandGeneration)) return; }
             catch (Exception ignored) { return; }
             Log.e(TAG, "Could not start " + protocolName + " tunnel: " + e.getClass().getSimpleName());
             StatusStore.set(this, StatusStore.ERROR, protocolName + " не подключился. Проверьте профиль и сеть.");
-            getSystemService(NotificationManager.class).notify(101, notification("Ошибка " + protocolName));
             startService(new Intent(this, AutomationService.class)
                     .setAction(AutomationService.ACTION_TUNNEL_FAILED)
                     .putExtra(EXTRA_PROFILE_ID, id).putExtra(EXTRA_ATTEMPT_ID, attemptId));
@@ -241,7 +236,7 @@ public final class XrayVpnService extends VpnService {
 
     @Override public void onRevoke() {
         requestedGeneration++;
-        worker.execute(() -> { stopTunnel(); stopSelf(); });
+        worker.execute(() -> { stopTunnel(); stopForeground(STOP_FOREGROUND_DETACH); stopSelf(); });
         super.onRevoke();
     }
 
@@ -253,11 +248,4 @@ public final class XrayVpnService extends VpnService {
 
     @Override public IBinder onBind(Intent intent) { return super.onBind(intent); }
 
-    private Notification notification(String text) {
-        return new Notification.Builder(this, CHANNEL)
-                .setContentTitle("AutoTurn")
-                .setContentText(text)
-                .setSmallIcon(R.drawable.ic_stat_autoturn).setColor(TerminalUi.NOTIFICATION_COLOR)
-                .setOngoing(true).build();
-    }
 }

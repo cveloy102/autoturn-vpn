@@ -53,26 +53,42 @@ public final class VpnTileService extends TileService {
 
     private void toggleVpn() {
         try {
-            SecureStore store = new SecureStore(this);
-            if (SecureStore.expireManualMode(this, System.currentTimeMillis())) store = new SecureStore(this);
-            String next = nextManualMode(store.manualMode, StatusStore.state(this));
-            if (SecureStore.MANUAL_ON.equals(next) &&
-                    (store.activeProfile() == null || VpnService.prepare(this) != null)) {
-                Intent open = new Intent(this, MainActivity.class)
-                        .putExtra(MainActivity.EXTRA_MANUAL_ON, true)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                openApp(open);
+            String next = applyToggle(this);
+            if (next == null) {
+                openApp(manualOnIntent(this));
                 return;
             }
-            store.setControlMode(next);
-            AutoReturnReceiver.sync(this);
-            startForegroundService(new Intent(this, AutomationService.class)
-                    .setAction(AutomationService.ACTION_REFRESH));
             updateTile(SecureStore.MANUAL_ON.equals(next));
         } catch (Exception e) {
             StatusStore.set(this, StatusStore.ERROR, "Не удалось переключить VPN. Откройте AutoTurn.");
             updateTile();
         }
+    }
+
+    /**
+     * Shared by the tile and the notification button. Returns the new manual mode, or null when
+     * turning on needs AutoTurn itself (no profile yet, or Android's VPN permission prompt).
+     */
+    static String applyToggle(Context context) throws Exception {
+        SecureStore store = new SecureStore(context);
+        if (SecureStore.expireManualMode(context, System.currentTimeMillis())) store = new SecureStore(context);
+        String next = nextManualMode(store.manualMode, StatusStore.state(context));
+        if (SecureStore.MANUAL_ON.equals(next) && needsApp(context, store)) return null;
+        store.setControlMode(next);
+        AutoReturnReceiver.sync(context);
+        context.startForegroundService(new Intent(context, AutomationService.class)
+                .setAction(AutomationService.ACTION_REFRESH));
+        return next;
+    }
+
+    static boolean needsApp(Context context, SecureStore store) {
+        return store.activeProfile() == null || VpnService.prepare(context) != null;
+    }
+
+    static Intent manualOnIntent(Context context) {
+        return new Intent(context, MainActivity.class)
+                .putExtra(MainActivity.EXTRA_MANUAL_ON, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
     }
 
     static String nextManualMode(String mode, String state) {

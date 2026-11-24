@@ -36,7 +36,6 @@ public final class AutomationService extends Service {
     static final String ACTION_REFRESH = "app.autoturn.vpn.REFRESH";
     static final String ACTION_RESTART_QUEUE = "app.autoturn.vpn.RESTART_QUEUE";
     static final String ACTION_TUNNEL_FAILED = "app.autoturn.vpn.TUNNEL_FAILED";
-    private static final String CHANNEL = "automation";
     private static final String TAG = "AutoTurnGuard";
     private static final long CHECK_INTERVAL_MS = 5_000;
     private static final long START_GRACE_MS = 8_000;
@@ -86,6 +85,8 @@ public final class AutomationService extends Service {
     private final Runnable delayedApply = () -> enqueue(this::applyDecision);
     private final Runnable returnToAuto = () -> enqueue(this::applyDecision);
     private final Runnable healthTick = () -> enqueue(this::checkHealth);
+    // A tunnel service that stops right after a status change may take the shared card down with it.
+    private final Runnable cardCheck = () -> enqueue(this::updateNotification);
 
     private void enqueue(Runnable action) {
         try { worker.execute(action); }
@@ -94,10 +95,13 @@ public final class AutomationService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        NotificationManager notifications = getSystemService(NotificationManager.class);
-        notifications.createNotificationChannel(new NotificationChannel(CHANNEL, "Автоматизация VPN",
-                NotificationManager.IMPORTANCE_LOW));
-        startForeground(100, notification("Следим за домашней сетью"));
+        startForeground(StatusNotification.ID, StatusNotification.build(this));
+        // Before 2.1 the tunnels had channels of their own; their notifications now share one card.
+        try {
+            NotificationManager notifications = getSystemService(NotificationManager.class);
+            notifications.deleteNotificationChannel("xray");
+            notifications.deleteNotificationChannel("protected-vpn");
+        } catch (RuntimeException ignored) { }
         connectivity = getSystemService(ConnectivityManager.class);
         endpointUpdates = new EndpointUpdates(this,false);
         island = new LiveIsland(this);
@@ -180,8 +184,7 @@ public final class AutomationService extends Service {
         latestStartId = startId;
         // A new foreground-service request also needs acknowledgment when the existing
         // instance is being stopped/restarted; onCreate alone is insufficient.
-        String foregroundDetail = StatusStore.detail(this);
-        startForeground(100, notification(foregroundDetail.isEmpty() ? "Следим за домашней сетью" : foregroundDetail));
+        startForeground(StatusNotification.ID, StatusNotification.build(this));
         if (intent != null && ACTION_TUNNEL_FAILED.equals(intent.getAction())) {
             String failedId = intent.getStringExtra(XrayVpnService.EXTRA_PROFILE_ID);
             String attemptId = intent.getStringExtra(XrayVpnService.EXTRA_ATTEMPT_ID);
@@ -191,7 +194,8 @@ public final class AutomationService extends Service {
         if (intent != null && ACTION_RESTART_QUEUE.equals(intent.getAction())) {
             worker.execute(this::restartQueue);
         } else if (intent != null && ACTION_REFRESH.equals(intent.getAction()))
-            worker.execute(this::applyDecision);
+            // A mode change (app, tile, card button, auto-return) may leave the status text unchanged.
+            worker.execute(() -> { applyDecision(); updateNotification(); });
         else schedule();
         return START_STICKY;
     }
@@ -203,6 +207,7 @@ public final class AutomationService extends Service {
         handler.removeCallbacks(delayedApply);
         handler.removeCallbacks(returnToAuto);
         handler.removeCallbacks(healthTick);
+        handler.removeCallbacks(cardCheck);
         if (callback != null) connectivity.unregisterNetworkCallback(callback);
         if (vpnCallback != null) connectivity.unregisterNetworkCallback(vpnCallback);
         worker.execute(() -> {
@@ -263,7 +268,7 @@ public final class AutomationService extends Service {
                 clearHealth();
                 guardProfileId = "";
                 clearIsland();
-                updateNotification(needsProtection(store) ? "VPN остановлен · защита активна" : "VPN выключен вручную");
+                updateNotification();
                 return;
             }
             if (candidate == null || !candidate.enabled) {
@@ -294,7 +299,7 @@ public final class AutomationService extends Service {
                 guardProfileId = "";
                 clearIsland();
                 StatusStore.set(this, StatusStore.OFF, "Домашний Wi-Fi · VPN выключен");
-                updateNotification("VPN выключен дома");
+                updateNotification();
                 return;
             }
             // A fresh VPN session always starts with the user's primary profile.
@@ -380,7 +385,7 @@ public final class AutomationService extends Service {
                 runningType = Profile.AMNEZIA;
                 runningId = profile.id;
                 runningPolicy = policy;
-                updateNotification("AmneziaWG · ожидаем соединения");
+                updateNotification();
             } else {
                 Intent start = new Intent(this, XrayVpnService.class).setAction(XrayVpnService.ACTION_START);
                 start.putExtra(XrayVpnService.EXTRA_PROFILE_ID, profile.id);
@@ -389,8 +394,7 @@ public final class AutomationService extends Service {
                 runningId = profile.id;
                 runningPolicy = policy;
                 startForegroundService(start);
-                updateNotification(Profile.HYSTERIA2.equals(profile.type) ?
-                        "Подключаем Hysteria 2" : Profile.QWDTT.equals(profile.type) ? "Подключаем qWDTT" : "Подключаем Reality");
+                updateNotification();
             }
             startedAt = SystemClock.elapsedRealtime();
             if (guardEnabled(store)) Log.i(TAG, "Started " + profile.type + "; checking connection");
@@ -400,7 +404,7 @@ public final class AutomationService extends Service {
             stopCurrent(protect);
             if (protect) holdProtection("Трафик заблокирован · VPN не удалось включить");
             else StatusStore.set(this, StatusStore.ERROR, "VPN не удалось включить. Откройте AutoTurn.");
-            updateNotification("Ошибка подключения VPN");
+            updateNotification();
             if (store != null && guardEnabled(store)) {
                 try { recover(store); }
                 catch (Exception ignored) { scheduleHealth(CHECK_INTERVAL_MS); }
@@ -597,7 +601,7 @@ public final class AutomationService extends Service {
                     Log.i(TAG, "Short traffic probe inconclusive; confirming before failover");
                     StatusStore.set(this, verified ? StatusStore.ON : StatusStore.CONNECTING,
                             "Проверяем доступ через VPN · соединение сохраняется");
-                    updateNotification("Перепроверяем доступ через VPN");
+                    updateNotification();
                     scheduleHealth(2000);
                     return;
                 }
@@ -649,14 +653,14 @@ public final class AutomationService extends Service {
             else StatusStore.set(this, StatusStore.ERROR, "Профили недоступны · повторим через 15 секунд");
             islandFailed.clear();
             island.show(LiveIsland.Content.pause(System.currentTimeMillis() + ALL_FAILED_PAUSE_MS));
-            updateNotification("Ожидаем повторного подключения VPN");
+            updateNotification();
             scheduleHealth(ALL_FAILED_PAUSE_MS);
             return;
         }
         String detail = next == null ? "Повторяем подключение " + current.name :
                 "Пробуем профиль " + next.name;
         StatusStore.set(this, StatusStore.CONNECTING, detail);
-        updateNotification(detail);
+        updateNotification();
         applyDecision();
     }
 
@@ -681,6 +685,9 @@ public final class AutomationService extends Service {
 
     /** Worker thread. Catches "connected" and "off" reported by tunnels in other processes. */
     private void statusChanged() {
+        updateNotification();
+        handler.removeCallbacks(cardCheck);
+        handler.postDelayed(cardCheck, 2500);
         if (!island.showing()) return;
         String state = StatusStore.state(this);
         String detail = StatusStore.detail(this);
@@ -763,16 +770,15 @@ public final class AutomationService extends Service {
         startService(new Intent(this, ProtectedVpnService.class).setAction(ProtectedVpnService.ACTION_STOP));
     }
 
-    private Notification notification(String text) {
-        return new Notification.Builder(this, CHANNEL)
-                .setContentTitle("AutoTurn")
-                .setContentText(text)
-                .setSmallIcon(R.drawable.ic_stat_autoturn).setColor(TerminalUi.NOTIFICATION_COLOR)
-                .setOngoing(true)
-                .build();
-    }
+    private String shownStatusKey = "";
 
-    private void updateNotification(String text) {
-        getSystemService(NotificationManager.class).notify(100, notification(text));
+    /** Worker thread. Reposts the status card when its content changed or a stopped tunnel removed it. */
+    private void updateNotification() {
+        try {
+            StatusNotification.Content content = StatusNotification.current(this);
+            if (content.key().equals(shownStatusKey) && StatusNotification.visible(this)) return;
+            getSystemService(NotificationManager.class).notify(StatusNotification.ID, StatusNotification.build(this, content));
+            shownStatusKey = content.key();
+        } catch (RuntimeException ignored) { }
     }
 }
