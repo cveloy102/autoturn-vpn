@@ -148,7 +148,6 @@ final class LiveIsland {
     }
 
     private final Context context;
-    private final NotificationManager manager;
     private boolean enabled;
     private String shownKey = "";
     private Kind shownKind;
@@ -156,8 +155,12 @@ final class LiveIsland {
     private long shownExpires;
 
     LiveIsland(Context context) {
+        // May be built before the service's context is attached; system services are looked up later.
         this.context = context;
-        this.manager = context.getSystemService(NotificationManager.class);
+    }
+
+    private NotificationManager manager() {
+        return context.getSystemService(NotificationManager.class);
     }
 
     static void ensureChannel(Context context) {
@@ -200,7 +203,7 @@ final class LiveIsland {
         if (key.equals(shownKey)) return;
         try {
             ensureChannel(context);
-            manager.notify(ID, build(content));
+            manager().notify(ID, build(content));
             shownKey = key;
             shownKind = content.kind;
             shownExpires = content.timeoutMs > 0 ? android.os.SystemClock.elapsedRealtime() + content.timeoutMs : 0;
@@ -225,7 +228,7 @@ final class LiveIsland {
         if (shownKey.isEmpty()) return;
         shownKey = "";
         shownKind = null;
-        try { manager.cancel(ID); } catch (RuntimeException ignored) { }
+        try { manager().cancel(ID); } catch (RuntimeException ignored) { }
     }
 
     private Notification build(Content content) {

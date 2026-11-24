@@ -72,7 +72,8 @@ public final class AutomationService extends Service {
     private long pauseUntil;
     private EndpointUpdates endpointUpdates;
     private GoBackend backend;
-    private LiveIsland island;
+    // Created with the service (not in onCreate) so every code path, tests included, has one.
+    private final LiveIsland island = new LiveIsland(this);
     // Profiles that failed during the transition the island is showing (red segments).
     private final java.util.Set<String> islandFailed = new java.util.HashSet<>();
     // The profile the island last said it was connecting to, for «На связи · name».
@@ -107,7 +108,6 @@ public final class AutomationService extends Service {
         } catch (RuntimeException ignored) { }
         connectivity = getSystemService(ConnectivityManager.class);
         endpointUpdates = new EndpointUpdates(this,false);
-        island = new LiveIsland(this);
         // Tunnels in other processes (Xray, protected mode) report "connected" only via StatusStore.
         statusReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context context, Intent intent) { enqueue(AutomationService.this::statusChanged); }
@@ -699,7 +699,7 @@ public final class AutomationService extends Service {
     /** Ends a transition in progress; short confirmations (home, off, …) leave by their own timeout. */
     private void clearIsland() {
         islandFailed.clear();
-        if (island != null) island.clearProgress();
+        island.clearProgress();
     }
 
     /** Worker thread. Catches "connected" and "off" reported by tunnels in other processes. */
