@@ -28,7 +28,7 @@ final class LiveIsland {
     static final long DONE_VISIBLE_MS = 10_000;
     // Profile names are user text of any length: keep the title and the island chip short.
     static final int TITLE_NAME_MAX = 20;
-    static final int CHIP_MAX = 8;
+    static final int CHIP_MAX = 12;
     // Long waits (no network for hours) must not turn into a permanent island.
     static final long WAIT_VISIBLE_MS = 10 * 60_000;
     static final long CAPTCHA_VISIBLE_MS = 2 * 60_000;

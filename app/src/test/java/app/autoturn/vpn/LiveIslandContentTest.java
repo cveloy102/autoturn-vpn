@@ -60,7 +60,7 @@ public class LiveIslandContentTest {
     @Test public void longProfileNamesAreCutToOneShortLine() {
         LiveIsland.Content content = LiveIsland.Content.done("Нидерланды  Амстердам\nрезервный сервер №2", "VLESS · Reality");
         assertEquals("На связи · Нидерланды Амстерда…", content.title);
-        assertEquals("Нидерла…", content.chip);
+        assertEquals("Нидерланды…", content.chip);
         assertEquals("abc", LiveIsland.Content.shorten("abc", 3));
         assertEquals("ab…", LiveIsland.Content.shorten("abcd", 3));
     }
