@@ -338,6 +338,9 @@ public final class MainActivity extends Activity {
                 .append('|').append(store.connectionGuard).append('|').append(store.protectedMode).append('|').append(store.homeSsids)
                 .append('|').append(store.appMode).append('|').append(store.selectedPackages);
         if (page == PAGE_PROFILES) key.append('|').append(StatusStore.state(this));
+        // The island hint changes when the user returns from Android's notification settings.
+        key.append('|').append(store.liveIsland);
+        if (page == PAGE_SETTINGS && store.liveIsland) key.append('|').append(LiveIsland.availability(this));
         Profile current = store.activeProfile();
         if (page == PAGE_HOME && current != null && Profile.QWDTT.equals(current.type))
             key.append('|').append(QwdttState.pending(this, current.id));
