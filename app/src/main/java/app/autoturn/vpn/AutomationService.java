@@ -99,7 +99,8 @@ public final class AutomationService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        startForeground(StatusNotification.ID, StatusNotification.build(this));
+        lastCard = StatusNotification.build(this);
+        startForeground(StatusNotification.ID, lastCard);
         // Before 2.1 the tunnels had channels of their own; their notifications now share one card.
         try {
             NotificationManager notifications = getSystemService(NotificationManager.class);
@@ -187,7 +188,10 @@ public final class AutomationService extends Service {
         latestStartId = startId;
         // A new foreground-service request also needs acknowledgment when the existing
         // instance is being stopped/restarted; onCreate alone is insufficient.
-        startForeground(StatusNotification.ID, StatusNotification.build(this));
+        // Main thread, shared with the tile: re-acknowledge with the card already built (no settings
+        // decryption here, or rapid tile clicks get delayed); the worker refreshes it right after.
+        Notification card = lastCard;
+        startForeground(StatusNotification.ID, card != null ? card : StatusNotification.build(this));
         if (intent != null && ACTION_TUNNEL_FAILED.equals(intent.getAction())) {
             String failedId = intent.getStringExtra(XrayVpnService.EXTRA_PROFILE_ID);
             String attemptId = intent.getStringExtra(XrayVpnService.EXTRA_ATTEMPT_ID);
@@ -218,6 +222,7 @@ public final class AutomationService extends Service {
             island.clear();
             try {
                 SecureStore store = new SecureStore(this);
+                lastStore = store;
                 if (needsProtection(store)) {
                     holdProtection("Трафик заблокирован · автоматизация остановлена");
                 } else {
@@ -251,6 +256,7 @@ public final class AutomationService extends Service {
         try {
             SecureStore.expireManualMode(this, System.currentTimeMillis());
             store = new SecureStore(this);
+            lastStore = store;
             island.setEnabled(store.liveIsland);
             boolean autoReturned = !SecureStore.MANUAL_AUTO.equals(lastManualMode) && lastManualUntil > 0 &&
                     System.currentTimeMillis() >= lastManualUntil && SecureStore.MANUAL_AUTO.equals(store.manualMode);
@@ -437,6 +443,7 @@ public final class AutomationService extends Service {
     private void restartQueue() {
         try {
             SecureStore store = new SecureStore(this);
+            lastStore = store;
             if (store.firstConnectionProfile() == null) { applyDecision(); return; }
             if (!wantsVpn(store)) store.setControlMode(SecureStore.MANUAL_ON);
             stopCurrent(store.protectedMode);
@@ -526,6 +533,7 @@ public final class AutomationService extends Service {
         if (activeProbe != null) return;
         try {
             SecureStore store = new SecureStore(this);
+            lastStore = store;
             island.setEnabled(store.liveIsland);
             if (!guardEnabled(store) || !wantsVpn(store)) return;
             long remainingPause = pauseUntil - SystemClock.elapsedRealtime();
@@ -578,6 +586,7 @@ public final class AutomationService extends Service {
         if (result != ConnectionProbe.Result.HEALTHY) healthyStreak = 0;
         try {
             SecureStore store = new SecureStore(this);
+            lastStore = store;
             island.setEnabled(store.liveIsland);
             if (!guardEnabled(store) || !wantsVpn(store) || !runningId.equals(store.activeId)) {
                 applyDecision();
@@ -636,6 +645,7 @@ public final class AutomationService extends Service {
         if (failedId == null || !failedId.equals(runningId) || runningAttemptId.isEmpty() || !runningAttemptId.equals(attemptId)) return;
         try {
             SecureStore store = new SecureStore(this);
+            lastStore = store;
             if (guardEnabled(store) && wantsVpn(store) && failedId.equals(store.activeId))
                 recover(store);
         } catch (Exception e) {
@@ -790,13 +800,18 @@ public final class AutomationService extends Service {
     }
 
     private String shownStatusKey = "";
+    // The settings this service read last; every decision reloads them, so the card's mode stays current.
+    private volatile SecureStore lastStore;
+    private volatile Notification lastCard;
 
     /** Worker thread. Reposts the status card when its content changed or a stopped tunnel removed it. */
     private void updateNotification() {
         try {
-            StatusNotification.Content content = StatusNotification.current(this);
+            StatusNotification.Content content = StatusNotification.current(this, lastStore);
             if (content.key().equals(shownStatusKey) && StatusNotification.visible(this)) return;
-            getSystemService(NotificationManager.class).notify(StatusNotification.ID, StatusNotification.build(this, content));
+            Notification card = StatusNotification.build(this, content);
+            getSystemService(NotificationManager.class).notify(StatusNotification.ID, card);
+            lastCard = card;
             shownStatusKey = content.key();
         } catch (RuntimeException ignored) { }
     }

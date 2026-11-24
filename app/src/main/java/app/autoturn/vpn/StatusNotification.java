@@ -97,6 +97,13 @@ final class StatusNotification {
         }
     }
 
+    /** From settings the caller already holds: no extra decryption on every status change. */
+    static Content current(Context context, SecureStore store) {
+        if (store == null) return current(context);
+        return Content.of(StatusStore.state(context), StatusStore.detail(context), store.manualMode, store.manualUntil,
+                store.automation, store.protectedMode, store.firstConnectionProfile() != null, System.currentTimeMillis());
+    }
+
     static Content current(Context context) {
         String manualMode = SecureStore.MANUAL_AUTO;
         long manualUntil = 0;
