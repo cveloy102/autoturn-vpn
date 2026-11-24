@@ -8,8 +8,9 @@ android {
         applicationId 'app.autoturn.vpn'
         minSdk 31
         targetSdk 36
-        versionCode 35
-        versionName '2.0.2'
+        versionCode 36
+        versionName '2.1.0-rc1'
+        testApplicationId 'app.autoturn.vpn.instrumentation'
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
 
@@ -46,6 +47,9 @@ dependencies {
     testImplementation 'org.json:json:20240303'
     implementation project(':amneziawg-tunnel')
     implementation files('libs/libXray.aar')
-    androidTestCompileOnly files('../.sdk/platforms/android-37.0/optional/android.test.base.jar',
-            '../.sdk/platforms/android-37.0/optional/android.test.runner.jar')
+    androidTestCompileOnly files(androidComponents.sdkComponents.sdkDirectory.map { sdk ->
+        sdk.dir('platforms/android-37.0/optional').asFileTree.matching {
+            include 'android.test.base.jar', 'android.test.runner.jar'
+        }
+    })
 }

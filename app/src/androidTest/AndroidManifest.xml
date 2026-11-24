@@ -5,7 +5,7 @@
         <activity android:name="app.autoturn.vpn.RoutingProbeActivity" android:exported="true"
             android:excludeFromRecents="true" />
         <provider android:name="app.autoturn.vpn.ProfileFixtureProvider"
-            android:authorities="app.autoturn.vpn.test.fixture" android:exported="true" />
+            android:authorities="${applicationId}.fixture" android:exported="true" />
         <uses-library android:name="android.test.runner" />
         <uses-library android:name="android.test.base" />
     </application>

@@ -32,6 +32,7 @@ final class AppUpdater {
     static final long MAX_APK_BYTES = 250 * 1024 * 1024L;
     enum Phase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, VERIFYING, READY, ERROR }
     interface Listener { void changed(State state); }
+    interface JsonSource { JSONObject read(String address, int maxBytes) throws Exception; }
     static final class State {
         final Phase phase;
         final UpdateRelease release;
@@ -50,6 +51,7 @@ final class AppUpdater {
     }
     private final Context context;
     private final SharedPreferences prefs;
+    private final JsonSource source;
     private final DownloadManager downloads;
     private final ExecutorService executor = Executors.newFixedThreadPool(2);
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -63,8 +65,12 @@ final class AppUpdater {
     private UpdateRelease availableRelease;
 
     private AppUpdater(Context context) {
+        this(context, context.getSharedPreferences("app_updates", Context.MODE_PRIVATE), AppUpdater::readJson);
+    }
+    AppUpdater(Context context, SharedPreferences prefs, JsonSource source) {
         this.context = context;
-        prefs = context.getSharedPreferences("app_updates", Context.MODE_PRIVATE);
+        this.prefs = prefs;
+        this.source = source;
         downloads = context.getSystemService(DownloadManager.class);
         downloadId = prefs.getLong("download_id", 0);
         try {
@@ -132,7 +138,7 @@ final class AppUpdater {
         publish(Phase.CHECKING, null, -1, "Проверяем GitHub…", manual);
         executor.execute(() -> {
             try {
-                JSONObject release = readJson(UpdateRelease.API, 2 * 1024 * 1024);
+                JSONObject release = source.read(UpdateRelease.API, 2 * 1024 * 1024);
                 if (release == null) { checkResult(Phase.CURRENT, null, "Новых релизов пока нет."); return; }
                 String metadata = UpdateRelease.metadataUrl(release);
                 if (metadata == null) {
@@ -143,7 +149,7 @@ final class AppUpdater {
                     else throw new IOException("В релизе отсутствует update.json. Попробуйте позже.");
                     return;
                 }
-                JSONObject data = readJson(metadata, 64 * 1024);
+                JSONObject data = source.read(metadata, 64 * 1024);
                 if (data == null) throw new IOException("Данные релиза недоступны");
                 UpdateRelease candidate = UpdateRelease.parse(release, data);
                 checkResult(candidate.code > BuildConfig.VERSION_CODE ? Phase.AVAILABLE : Phase.CURRENT,

@@ -3,29 +3,31 @@ package app.autoturn.vpn;
 import android.content.Context;
 import android.content.Intent;
 import android.os.SystemClock;
-import android.test.InstrumentationTestCase;
 import org.json.JSONObject;
 import java.io.File;
 import java.nio.file.Files;
 
 /** Explicit live-device test. Reads the user-authorized link only from an app-private input. */
-public final class QwdttDeviceTest extends InstrumentationTestCase {
+public final class QwdttDeviceTest extends RoutingProbeTestCase {
     private Context context;
     private byte[] original;
     private File settings;
     private SecureStore baseline;
+
+    private Profile testProfile() throws Exception {
+        File input = new File(context.getFilesDir(), "qwdtt-test-input.txt");
+        if (input.isFile()) return ProfileImporter.parse("qWDTT", Files.readString(input.toPath()).trim());
+        for (Profile saved : new SecureStore(context).profiles) {
+            if (saved.enabled && Profile.QWDTT.equals(saved.type)) return ProfileImporter.parse("qWDTT", saved.config);
+        }
+        throw new AssertionError("Provide qwdtt-test-input.txt or enable one saved qWDTT profile");
+    }
 
     private void report(String message) {
         android.os.Bundle bundle = new android.os.Bundle(); bundle.putString("stream", message + "\n");
         getInstrumentation().sendStatus(0, bundle);
     }
 
-    private String shell(String command) throws Exception {
-        try (android.os.ParcelFileDescriptor fd = getInstrumentation().getUiAutomation().executeShellCommand(command);
-             java.io.InputStream in = new android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)) {
-            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        }
-    }
 
     private void refresh() {
         context.startForegroundService(new Intent(context, AutomationService.class).setAction(AutomationService.ACTION_REFRESH));
@@ -50,14 +52,17 @@ public final class QwdttDeviceTest extends InstrumentationTestCase {
     }
 
     private void configure(Profile qwdtt, String routing) throws Exception {
+        SecureStore legacy = new SecureStore(context);
+        legacy.protectedMode = false;
+        legacy.save("protectedMode");
         mode(SecureStore.MANUAL_OFF); waitState(StatusStore.OFF, 15000);
         SecureStore store = new SecureStore(context);
         store.profiles.clear(); store.profiles.add(qwdtt);
         store.primaryId = qwdtt.id; store.activeId = qwdtt.id;
         store.connectionGuard = true; store.appMode = routing;
         store.selectedPackages.clear(); store.onlyPackages.clear(); store.excludedPackages.clear();
-        if (AppPolicy.ONLY.equals(routing)) store.onlyPackages.add("app.autoturn.vpn.test");
-        if (AppPolicy.EXCLUDE.equals(routing)) store.excludedPackages.add("app.autoturn.vpn.test");
+        if (AppPolicy.ONLY.equals(routing)) store.onlyPackages.add(probePackage());
+        if (AppPolicy.EXCLUDE.equals(routing)) store.excludedPackages.add(probePackage());
         if (AppPolicy.ONLY.equals(routing)) store.selectedPackages.addAll(store.onlyPackages);
         if (AppPolicy.EXCLUDE.equals(routing)) store.selectedPackages.addAll(store.excludedPackages);
         store.save();
@@ -75,12 +80,12 @@ public final class QwdttDeviceTest extends InstrumentationTestCase {
     }
 
     private void probeAppOnce(boolean vpn, boolean udp) throws Exception {
-        shell("run-as app.autoturn.vpn.test rm -f files/routing-probe.json");
-        shell("am start -n app.autoturn.vpn.test/app.autoturn.vpn.RoutingProbeActivity --ez wake true --ez udp " + udp);
+        shell("run-as " + probePackage() + " rm -f files/routing-probe.json");
+        shell("am start -n " + probePackage() + "/app.autoturn.vpn.RoutingProbeActivity --ez wake true --ez udp " + udp);
         long end = SystemClock.elapsedRealtime() + 25000;
         JSONObject result = null;
         while (SystemClock.elapsedRealtime() < end) {
-            String text = shell("run-as app.autoturn.vpn.test cat files/routing-probe.json").trim();
+            String text = shell("run-as " + probePackage() + " cat files/routing-probe.json").trim();
             if (text.startsWith("{")) { result = new JSONObject(text); break; }
             Thread.sleep(300);
         }
@@ -97,8 +102,7 @@ public final class QwdttDeviceTest extends InstrumentationTestCase {
         original = Files.readAllBytes(settings.toPath()); baseline = new SecureStore(context);
         Files.write(new File(context.getFilesDir(), "qwdtt-baseline.enc").toPath(), original);
         assertNull("Previously granted VPN permission", android.net.VpnService.prepare(context));
-        String source = Files.readString(new File(context.getFilesDir(), "qwdtt-test-input.txt").toPath()).trim();
-        Profile qwdtt = ProfileImporter.parse("qWDTT", source);
+        Profile qwdtt = testProfile();
         try {
             for (String routing : new String[]{AppPolicy.ALL, AppPolicy.ONLY, AppPolicy.EXCLUDE}) {
                 configure(qwdtt, routing);
@@ -158,24 +162,27 @@ public final class QwdttDeviceTest extends InstrumentationTestCase {
         }
     }
 
-    public void testAddAuthorizedLastResortToUserProfiles() throws Exception {
+    public void testAddAuthorizedLastResortPreservesExistingProfiles() throws Exception {
         context = getInstrumentation().getTargetContext();
-        File input = new File(context.getFilesDir(), "qwdtt-test-input.txt");
-        Profile imported = ProfileImporter.parse("qWDTT", Files.readString(input.toPath()).trim());
-        SecureStore store = new SecureStore(context);
-        for (Profile item : store.profiles)
-            if (Profile.QWDTT.equals(item.type) && item.config.equals(imported.config)) {
-                report("qWDTT profile already present; no duplicate added"); return;
-            }
+        Profile imported = testProfile();
+        try (SettingsFixture fixture = new SettingsFixture(context, new File(context.getFilesDir(), "settings.enc"))) {
+            verifyAdd(fixture, imported);
+        }
+    }
+
+    private void verifyAdd(Context fixture, Profile imported) throws Exception {
+        SecureStore store = new SecureStore(fixture);
         String primary = store.primaryId;
         java.lang.reflect.Method encode = SecureStore.class.getDeclaredMethod("encodeSettings");
         encode.setAccessible(true);
         JSONObject before = (JSONObject) encode.invoke(store);
         java.util.List<Profile> previous = new java.util.ArrayList<>(store.profiles);
         store.add(imported);
-        SecureStore saved = new SecureStore(context);
+        SecureStore saved = new SecureStore(fixture);
         assertEquals(primary, saved.primaryId);
-        assertTrue(saved.orderedProfiles().get(store.profiles.size()-1).lastResort);
+        Profile last = saved.orderedProfiles().get(store.profiles.size()-1);
+        assertEquals(imported.id, last.id);
+        assertTrue(last.lastResort);
         for (Profile old : previous) {
             Profile preserved = null;
             for (Profile item : saved.profiles) if (old.id.equals(item.id)) preserved = item;
@@ -185,15 +192,13 @@ public final class QwdttDeviceTest extends InstrumentationTestCase {
         JSONObject after = (JSONObject) encode.invoke(saved);
         before.remove("profiles"); after.remove("profiles");
         assertTrue("All non-profile settings are unchanged", before.toString().equals(after.toString()));
-        report("Added authorized qWDTT last-resort profile; original primary preserved");
     }
 
     public void testQwdttScreenOffAndCancelDuringStartup() throws Exception {
         context = getInstrumentation().getTargetContext();
         settings = new File(context.getFilesDir(), "settings.enc");
         original = Files.readAllBytes(settings.toPath()); baseline = new SecureStore(context);
-        Profile qwdtt = ProfileImporter.parse("qWDTT", Files.readString(
-                new File(context.getFilesDir(), "qwdtt-test-input.txt").toPath()).trim());
+        Profile qwdtt = testProfile();
         boolean idle = false;
         try {
             configure(qwdtt, AppPolicy.ALL);
@@ -276,8 +281,7 @@ public final class QwdttDeviceTest extends InstrumentationTestCase {
         }
         settings = new File(context.getFilesDir(), "settings.enc");
         original = Files.readAllBytes(settings.toPath()); baseline = new SecureStore(context);
-        Profile qwdtt = ProfileImporter.parse("qWDTT", Files.readString(
-                new File(context.getFilesDir(), "qwdtt-test-input.txt").toPath()).trim());
+        Profile qwdtt = testProfile();
         boolean wifiChanged = false;
         try {
             configure(qwdtt, AppPolicy.ALL);

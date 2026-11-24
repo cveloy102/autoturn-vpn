@@ -1,7 +1,9 @@
 package app.autoturn.vpn;
 
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.test.InstrumentationTestCase;
 import android.view.View;
 import android.view.ViewGroup;
@@ -10,9 +12,30 @@ import android.widget.ScrollView;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
-/** Real GitHub requests, native settings button, lifecycle and scroll checks. */
+/** Native update UI and lifecycle. PublicationUpdateTest exercises the real GitHub endpoint. */
 public final class UpdateUiTest extends InstrumentationTestCase {
     private MainActivity activity;
+    private SharedPreferences prefs;
+    private Field singleton;
+    private AppUpdater previous, updater;
+    private final java.util.concurrent.CountDownLatch response = new java.util.concurrent.CountDownLatch(1);
+    private volatile boolean holdResponse;
+
+    @Override protected void setUp() throws Exception {
+        super.setUp();
+        Context context = getInstrumentation().getTargetContext().getApplicationContext();
+        prefs = context.getSharedPreferences("update_ui_fixture", Context.MODE_PRIVATE);
+        prefs.edit().clear().commit();
+        updater = new AppUpdater(context, prefs, (address, limit) -> {
+            if (holdResponse && !response.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                throw new java.io.IOException("Test response timed out");
+            return null; // GitHub has no newer public release.
+        });
+        singleton = AppUpdater.class.getDeclaredField("instance");
+        singleton.setAccessible(true);
+        previous = (AppUpdater) singleton.get(null);
+        singleton.set(null, updater);
+    }
     private Object field(Object object, String name) throws Exception {
         Field value = object.getClass().getDeclaredField(name); value.setAccessible(true); return value.get(object);
     }
@@ -87,7 +110,8 @@ public final class UpdateUiTest extends InstrumentationTestCase {
         publish(AppUpdater.Phase.DOWNLOADING, release, 42);
         assertTrue(banner.getText().toString().contains("42%")); assertEquals(height, banner.getHeight());
         publish(AppUpdater.Phase.READY, release, 100);
-        assertTrue(banner.getText().toString().startsWith("Установить")); assertEquals(height, banner.getHeight());
+        assertEquals("Установить " + release.version + " →", banner.getContentDescription().toString());
+        assertEquals(height, banner.getHeight());
         publish(AppUpdater.Phase.CURRENT, null, -1);
         assertFalse(banner.isEnabled()); assertEquals(height, banner.getHeight());
     }
@@ -95,44 +119,51 @@ public final class UpdateUiTest extends InstrumentationTestCase {
         launch(); waitCheck();
         UpdateRelease release = futureRelease(); AppUpdater.get(activity).markOffered(release);
         publish(AppUpdater.Phase.AVAILABLE, release, -1);
-        java.lang.reflect.Constructor<AppUpdater> constructor = AppUpdater.class.getDeclaredConstructor(android.content.Context.class);
-        constructor.setAccessible(true);
-        AppUpdater restored = constructor.newInstance(activity.getApplicationContext());
+        AppUpdater restored = new AppUpdater(activity.getApplicationContext(), prefs, (url, limit) -> null);
         assertEquals(release.code, restored.availableRelease().code);
         assertEquals(AppUpdater.Phase.AVAILABLE, restored.state().phase);
         publish(AppUpdater.Phase.ERROR, null, -1);
         assertEquals(release.code, AppUpdater.get(activity).availableRelease().code);
         publish(AppUpdater.Phase.CURRENT, null, -1);
         assertNull(AppUpdater.get(activity).availableRelease());
-        assertNull(constructor.newInstance(activity.getApplicationContext()).availableRelease());
+        assertNull(new AppUpdater(activity.getApplicationContext(), prefs, (url, limit) -> null).availableRelease());
     }
     @Override protected void tearDown() throws Exception {
-        if (activity != null && !activity.isFinishing()) ui(() -> activity.finish());
-        getInstrumentation().waitForIdleSync(); super.tearDown();
+        try {
+            response.countDown();
+            if (activity != null && !activity.isFinishing()) ui(() -> activity.finish());
+            getInstrumentation().waitForIdleSync();
+        } finally {
+            singleton.set(null, previous);
+            ((java.util.concurrent.ExecutorService) field(updater, "executor")).shutdownNow();
+            prefs.edit().clear().commit();
+            super.tearDown();
+        }
     }
     public void testManualButtonChecksImmediatelyAndPreservesScroll() throws Exception {
         launch(); waitCheck();
         ScrollView scroll = (ScrollView) field(activity, "currentScroll");
         ui(() -> scroll.fullScroll(View.FOCUS_DOWN)); settle();
         int position = scroll.getScrollY(); View content = scroll.getChildAt(0);
-        long old = activity.getSharedPreferences("app_updates", 0).getLong("last_check", 0);
+        long old = prefs.getLong("last_check", 0);
         Button action = button(activity.getWindow().getDecorView(), "Проверить обновления"); assertNotNull(action);
         long started = android.os.SystemClock.elapsedRealtime(); ui(() -> action.performClick());
         assertTrue("Network must not block the UI", android.os.SystemClock.elapsedRealtime() - started < 1000);
         waitCheck();
-        assertTrue(activity.getSharedPreferences("app_updates", 0).getLong("last_check", 0) > old);
+        assertTrue(prefs.getLong("last_check", 0) > old);
         assertTrue("Manual result is visible", ((AlertDialog) field(field(activity, "updateUi"), "dialog")).isShowing());
         assertSame(scroll, field(activity, "currentScroll")); assertSame(content, scroll.getChildAt(0)); assertEquals(position, scroll.getScrollY());
     }
-    public void testRepeatedResumeDoesNotCheckAgainWithinADay() throws Exception {
+    public void testResumeChecksAgainAfterOneHour() throws Exception {
         launch(); waitCheck();
-        long previous = activity.getSharedPreferences("app_updates", 0).getLong("last_check", 0);
-        assertTrue(previous > 0);
-        ui(() -> {
-            try { Method method = MainActivity.class.getDeclaredMethod("onResume"); method.setAccessible(true); method.invoke(activity); }
-            catch (Exception e) { throw new RuntimeException(e); }
-        });
-        settle(); assertEquals(previous, activity.getSharedPreferences("app_updates", 0).getLong("last_check", 0));
+        long withinHour = System.currentTimeMillis() - 30 * 60_000L;
+        prefs.edit().putLong("last_check", withinHour).commit();
+        ui(activity::onResume); settle();
+        assertEquals(withinHour, prefs.getLong("last_check", 0));
+        long expired = System.currentTimeMillis() - AppUpdater.CHECK_INTERVAL;
+        prefs.edit().putLong("last_check", expired).commit();
+        ui(activity::onResume); waitCheck();
+        assertTrue(prefs.getLong("last_check", 0) > withinHour);
     }
     public void testDismissedManualResultDoesNotReappearAfterRelaunch() throws Exception {
         launch(); waitCheck();
@@ -154,12 +185,14 @@ public final class UpdateUiTest extends InstrumentationTestCase {
     }
     public void testManualRequestDuringAutomaticCheckShowsItsResult() throws Exception {
         launch(); waitCheck();
+        holdResponse = true;
         ui(() -> {
-            activity.getSharedPreferences("app_updates", 0).edit().putLong("last_check", 0).commit();
+            prefs.edit().putLong("last_check", 0).commit();
             AppUpdater.get(activity).check(false);
             try { ((UpdateUi) field(activity, "updateUi")).manualCheck(); }
             catch (Exception e) { throw new RuntimeException(e); }
         });
+        response.countDown();
         waitCheck();
         assertTrue(AppUpdater.get(activity).state().manual);
         AlertDialog dialog = (AlertDialog) field(field(activity, "updateUi"), "dialog"); assertNotNull(dialog); assertTrue(dialog.isShowing());

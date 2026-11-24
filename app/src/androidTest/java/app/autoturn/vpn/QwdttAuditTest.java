@@ -5,7 +5,6 @@ import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.os.SystemClock;
-import android.test.InstrumentationTestCase;
 import org.json.JSONObject;
 import java.io.File;
 import java.nio.file.Files;
@@ -13,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** Authorized live audit of existing profiles. Never prints profile configuration or credentials. */
-public final class QwdttAuditTest extends InstrumentationTestCase {
+public final class QwdttAuditTest extends RoutingProbeTestCase {
     private Context context;
     private byte[] original;
     private SecureStore baseline;
@@ -22,12 +21,6 @@ public final class QwdttAuditTest extends InstrumentationTestCase {
     private void report(String text) {
         android.os.Bundle out = new android.os.Bundle();
         out.putString("stream", text + "\n"); getInstrumentation().sendStatus(0, out);
-    }
-    private String shell(String command) throws Exception {
-        try (android.os.ParcelFileDescriptor fd = getInstrumentation().getUiAutomation().executeShellCommand(command);
-             java.io.InputStream in = new android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)) {
-            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        }
     }
     @Override protected void setUp() throws Exception {
         super.setUp(); context = getInstrumentation().getTargetContext();
@@ -86,8 +79,8 @@ public final class QwdttAuditTest extends InstrumentationTestCase {
         s.profiles.clear(); s.profiles.add(p); s.primaryId = p.id; s.activeId = p.id;
         s.connectionGuard = true; s.appMode = routing; s.autoReturnHours = 0;
         s.selectedPackages.clear(); s.onlyPackages.clear(); s.excludedPackages.clear();
-        if (AppPolicy.ONLY.equals(routing)) s.onlyPackages.add("app.autoturn.vpn.test");
-        if (AppPolicy.EXCLUDE.equals(routing)) s.excludedPackages.add("app.autoturn.vpn.test");
+        if (AppPolicy.ONLY.equals(routing)) s.onlyPackages.add(probePackage());
+        if (AppPolicy.EXCLUDE.equals(routing)) s.excludedPackages.add(probePackage());
         if (AppPolicy.ONLY.equals(routing)) s.selectedPackages.addAll(s.onlyPackages);
         if (AppPolicy.EXCLUDE.equals(routing)) s.selectedPackages.addAll(s.excludedPackages);
         s.save();
@@ -99,12 +92,12 @@ public final class QwdttAuditTest extends InstrumentationTestCase {
         report("CONNECTED " + p.name + " in " + elapsed + " ms"); return elapsed;
     }
     private JSONObject probe(boolean vpn, boolean udp, String phase) throws Exception {
-        shell("run-as app.autoturn.vpn.test rm -f files/routing-probe.json");
-        shell("am start -n app.autoturn.vpn.test/app.autoturn.vpn.RoutingProbeActivity --ez wake true --ez udp " + udp +
+        shell("run-as " + probePackage() + " rm -f files/routing-probe.json");
+        shell("am start -n " + probePackage() + "/app.autoturn.vpn.RoutingProbeActivity --ez wake true --ez udp " + udp +
                 " --ez audit " + phase.contains("egress-payload"));
         JSONObject result = null; long until = SystemClock.elapsedRealtime() + 65000;
         while (SystemClock.elapsedRealtime() < until) {
-            String raw = shell("run-as app.autoturn.vpn.test cat files/routing-probe.json").trim();
+            String raw = shell("run-as " + probePackage() + " cat files/routing-probe.json").trim();
             if (raw.startsWith("{")) { result = new JSONObject(raw); break; }
             Thread.sleep(250);
         }
@@ -232,7 +225,13 @@ public final class QwdttAuditTest extends InstrumentationTestCase {
         }
     }
     public void testCancelAndFailover() throws Exception {
-        List<Profile> list = targets(); assertTrue(list.size() >= 2);
+        List<Profile> list = targets();
+        assertFalse("One working qWDTT endpoint required", list.isEmpty());
+        if (list.size() == 1) {
+            // This fault kills the local native process. A second profile ID can reuse its server.
+            list.add(new Profile("QA reserve", Profile.QWDTT, list.get(0).config));
+            report("Testing two profile IDs with one installed endpoint");
+        }
         for (Profile p : list) {
             configure(p, AppPolicy.ALL);
             for (int i = 0; i < 3; i++) {

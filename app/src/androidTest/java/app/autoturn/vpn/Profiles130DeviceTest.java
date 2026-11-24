@@ -3,21 +3,14 @@ package app.autoturn.vpn;
 import android.content.Context;
 import android.content.Intent;
 import android.os.SystemClock;
-import android.test.InstrumentationTestCase;
 import java.io.File;
 import java.nio.file.Files;
 import org.json.JSONObject;
 
 /** Integration checks for multiple home networks and the persisted live failover order. */
-public final class Profiles130DeviceTest extends InstrumentationTestCase {
+public final class Profiles130DeviceTest extends RoutingProbeTestCase {
     private Context context;private byte[] original;private SecureStore baseline;
     private void report(String text){android.os.Bundle b=new android.os.Bundle();b.putString("stream",text+"\n");getInstrumentation().sendStatus(0,b);}
-    private String shell(String command)throws Exception{
-        try(android.os.ParcelFileDescriptor fd=getInstrumentation().getUiAutomation().executeShellCommand(command);
-            java.io.InputStream in=new android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)){
-            return new String(in.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8).trim();
-        }
-    }
     private void refresh(){context.startForegroundService(new Intent(context,AutomationService.class).setAction(AutomationService.ACTION_REFRESH));}
     private void mode(String m)throws Exception{new SecureStore(context).setControlMode(m);refresh();}
     private void waitState(String desired,long timeout)throws Exception{
@@ -36,10 +29,10 @@ public final class Profiles130DeviceTest extends InstrumentationTestCase {
     }
     private java.util.List<Profile> qwdtts(){java.util.List<Profile> out=new java.util.ArrayList<>();for(Profile p:baseline.profiles)if(Profile.QWDTT.equals(p.type))out.add(p);return out;}
     private void probe()throws Exception{
-        shell("run-as app.autoturn.vpn.test rm -f files/routing-probe.json");
-        shell("am start -n app.autoturn.vpn.test/app.autoturn.vpn.RoutingProbeActivity --ez wake true --ez udp true");
+        shell("run-as " + probePackage() + " rm -f files/routing-probe.json");
+        shell("am start -n " + probePackage() + "/app.autoturn.vpn.RoutingProbeActivity --ez wake true --ez udp true");
         long until=SystemClock.elapsedRealtime()+25000;JSONObject result=null;
-        while(SystemClock.elapsedRealtime()<until){String raw=shell("run-as app.autoturn.vpn.test cat files/routing-probe.json");
+        while(SystemClock.elapsedRealtime()<until){String raw=shell("run-as " + probePackage() + " cat files/routing-probe.json");
             if(raw.startsWith("{")){result=new JSONObject(raw);break;}Thread.sleep(250);}
         report("Independent app: "+result);assertNotNull(result);assertTrue(result.optBoolean("vpn"));
         assertEquals(200,result.optInt("http"));assertTrue("UDP response",result.optBoolean("udp"));
@@ -70,7 +63,10 @@ public final class Profiles130DeviceTest extends InstrumentationTestCase {
         String dead=awg.config.replaceAll("(?im)^\\s*Endpoint\\s*=.*$","Endpoint = 127.0.0.1:9");assertFalse(dead.equals(awg.config));
         Profile main=new Profile("QA primary unavailable",Profile.AMNEZIA,dead),a=new Profile("QA ordinary A",Profile.AMNEZIA,dead),
                 b=new Profile("QA ordinary B",Profile.AMNEZIA,dead);
-        java.util.List<Profile> qs=qwdtts();assertTrue(qs.size()>=2);Profile c=qs.get(0),d=qs.get(1);
+        java.util.List<Profile> qs=qwdtts();assertFalse("One working last-resort profile required",qs.isEmpty());
+        Profile d=qs.get(qs.size()>1?1:0);
+        // Only D connects. C needs a distinct queue entry, not a second server.
+        Profile c=qs.size()>1?qs.get(0):new Profile("QA last C",Profile.QWDTT,d.config);
         SecureStore s=new SecureStore(context);s.profiles.clear();
         for(Profile p:new Profile[]{main,a,b,c,d})s.profiles.add(p);s.primaryId=main.id;s.activeId=main.id;allApps(s);s.save();
         s.reorderProfiles(false,java.util.Arrays.asList(b.id,a.id));s.reorderProfiles(true,java.util.Arrays.asList(d.id,c.id));

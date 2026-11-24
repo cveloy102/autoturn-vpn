@@ -10,7 +10,7 @@ import java.util.Arrays;
  * Visual walk through every island state, for checking how HyperOS / OxygenOS draw them.
  * Posts real notifications from the app for a few seconds each; skipped unless asked:
  *   adb shell am instrument -w -e islandDemo 1 -e class app.autoturn.vpn.LiveIslandDemoTest \
- *     app.autoturn.vpn.test/android.test.InstrumentationTestRunner
+ *     app.autoturn.vpn.instrumentation/android.test.InstrumentationTestRunner
  * Optional: -e holdMs 6000 (time per state). Leave the phone on the home screen while it runs.
  */
 public final class LiveIslandDemoTest extends InstrumentationTestCase {

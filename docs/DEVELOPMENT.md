@@ -35,13 +35,13 @@ Lint-отчёт создаётся в `app/build/reports/lint-results-debug.html
 
 Проверки приложения находятся в `app/src/androidTest/`. Проверки реальных туннелей запускайте на специально выбранном устройстве: они могут переключать VPN.
 
-Для текущего набора `androidTest` SDK должен быть доступен также в локальной `.sdk/`: зависимости используют `.sdk/platforms/android-37.0/optional/android.test.*.jar`. Этот путь не требуется для обычной сборки APK и lint. Затем на подготовленном тестовом устройстве:
+Для сборки `androidTest` Gradle берёт библиотеки системного раннера из настроенного Android SDK. На одноразовом эмуляторе можно запустить автономные сценарии:
 
 ```powershell
-.\gradlew.bat :app:connectedDebugAndroidTest
+.\gradlew.bat :app:connectedDebugAndroidTest "-Pandroid.testInstrumentationRunnerArguments.class=app.autoturn.vpn.ModelValidationTest,app.autoturn.vpn.TileToggleTest"
 ```
 
-Перед запуском подготовьте профили, разрешения и тестовые APK по [TESTING.md](TESTING.md). Полный набор нельзя считать автономным тестом на пустом эмуляторе.
+GitHub Actions собирает debug, staging и инструментальные тесты, запускает модульные тесты и lint. На эмуляторах API 31 и 36 проверяются совместная установка APK, модель приложения, DNS, плитка и уведомления острова. Для полного прогона на телефоне с рабочими профилями используйте [инструкцию по проверке](TESTING.md).
 
 ## Структура Android-клиента
 

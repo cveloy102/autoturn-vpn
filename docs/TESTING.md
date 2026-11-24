@@ -1,3 +1,23 @@
+# Проверка тестовой версии с островом
+
+Сборка `debug` с исходной подписью обновляет установленный AutoTurn. Сборка `staging` с именем версии `-test` ставится отдельно в пакет `app.autoturn.vpn.test`. Тестовый раннер использует пакет `app.autoturn.vpn.instrumentation`.
+
+На компьютере нужны JDK 17 (`JAVA_HOME`), Android SDK (`ANDROID_HOME`), Python 3 и ADB. В командах подставьте серийный номер своего тестового телефона из `adb devices`. При обновлении используйте прежний ключ.
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:lintStaging :app:assembleDebug :app:assembleStaging :app:assembleDebugAndroidTest
+python tools/prepare-update-test-apks.py
+adb -s SERIAL install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s SERIAL install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb -s SERIAL push app/build/outputs/update-test/autoturn-update-candidate.apk /data/local/tmp/
+adb -s SERIAL push app/build/outputs/update-test/autoturn-wrong-signature.apk /data/local/tmp/
+python tools/test-device.py --serial SERIAL
+```
+
+Полный прогон переключает реальные туннели, Wi-Fi, мобильные данные и режим сна. На разблокированном телефоне должны работать AmneziaWG, Hysteria 2 и qWDTT. Понадобятся разрешения VPN, уведомлений, определения домашней сети и установки обновлений. Для миграции с 1.5.0 положите опубликованную APK той версии в `files/migration-1.5.0.apk` тестируемого приложения. Проверку переходов между двумя сохранёнными сетями включает пара аргументов `--arg plainWifiSsid ИМЯ --arg homeWifiSsid ИМЯ`.
+
+Раннер сохраняет зашифрованные настройки и предпочтения в `artifacts/device-tests/`. После каждого метода он останавливает процессы AutoTurn, восстанавливает копию и сверяет SHA-256. `results.json` содержит результат каждого сценария и причину каждого пропуска. Для повторного запуска одного метода укажите `ClassName#testMethod`. Чтобы сравнить миграцию с состоянием до установки, передайте `--before-update путь/к/before.tar` от той же установки. Снимки и сырые логи содержат приватные данные устройства и остаются локально.
+
 # Проверка 1.5.0
 
 Основа релиза — проверенные локальные 1.2.0/1.3.0. На POCO F7 / Android 16 прошли 40 различных тестов: модели и миграция, реальные жесты перетаскивания в обоих резервных блоках, меню, импорт файла/clipboard, темы, пересоздание экранов, живая очередь резервов с HTTPS/UDP и несколько домашних сетей с ручными приоритетами. Все пользовательские настройки сравнены с зашифрованной копией до обновления и восстановлены.

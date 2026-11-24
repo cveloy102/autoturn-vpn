@@ -33,7 +33,16 @@ jobs:
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
       - name: Unit tests, build APKs and run lint
-        run: sh ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleStaging :app:lintDebug --no-daemon
+        run: sh ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleStaging :app:lintDebug :app:lintStaging --no-daemon
+      - name: Upload APKs for the emulator checks
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumentation-apks
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/androidTest/debug/*.apk
+          if-no-files-found: error
+          retention-days: 1
       - name: Upload side-by-side test APK
         uses: actions/upload-artifact@v4
         with:
@@ -45,5 +54,49 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-lint
-          path: app/build/reports/lint-results-debug.*
+          path: |
+            app/build/reports/lint-results-*
+            app/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: ignore
+
+  device:
+    name: Android API ${{ matrix.api }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [31, 36]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: instrumentation-apks
+          path: apks
+      - uses: actions/download-artifact@v4
+        with:
+          name: autoturn-test-apk
+          path: staging
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: |
+            adb install -g apks/debug/app-debug.apk
+            adb install staging/app-staging.apk
+            adb install -t apks/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w -e class app.autoturn.vpn.ModelValidationTest,app.autoturn.vpn.EndpointResolverTest,app.autoturn.vpn.TileToggleTest,app.autoturn.vpn.LiveIslandNotificationTest app.autoturn.vpn.instrumentation/android.test.InstrumentationTestRunner | tee emulator-tests.txt
+            grep -Eq '^OK \([1-9][0-9]* tests?\)' emulator-tests.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-api-${{ matrix.api }}
+          path: emulator-tests.txt
           if-no-files-found: ignore

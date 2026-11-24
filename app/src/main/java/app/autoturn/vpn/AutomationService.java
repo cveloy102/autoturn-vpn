@@ -34,6 +34,7 @@ import java.util.concurrent.RejectedExecutionException;
 
 public final class AutomationService extends Service {
     static final String ACTION_REFRESH = "app.autoturn.vpn.REFRESH";
+    static final String EXTRA_TIMER_EXPIRED = "timerExpired";
     static final String ACTION_RESTART_QUEUE = "app.autoturn.vpn.RESTART_QUEUE";
     static final String ACTION_TUNNEL_FAILED = "app.autoturn.vpn.TUNNEL_FAILED";
     private static final String TAG = "AutoTurnGuard";
@@ -202,7 +203,7 @@ public final class AutomationService extends Service {
             worker.execute(this::restartQueue);
         } else if (intent != null && ACTION_REFRESH.equals(intent.getAction()))
             // A mode change (app, tile, card button, auto-return) may leave the status text unchanged.
-            worker.execute(() -> { applyDecision(); updateNotification(); });
+            worker.execute(() -> { applyDecision(intent.getBooleanExtra(EXTRA_TIMER_EXPIRED, false)); updateNotification(); });
         else schedule();
         return START_STICKY;
     }
@@ -251,15 +252,22 @@ public final class AutomationService extends Service {
     }
 
     private void applyDecision() {
+        applyDecision(false);
+    }
+
+    private void applyDecision(boolean expiredByAlarm) {
         final int decisionStartId = latestStartId;
         SecureStore store = null;
         try {
-            SecureStore.expireManualMode(this, System.currentTimeMillis());
+            long now = System.currentTimeMillis();
+            boolean expired = SecureStore.expireManualMode(this, now);
             store = new SecureStore(this);
             lastStore = store;
             island.setEnabled(store.liveIsland);
-            boolean autoReturned = !SecureStore.MANUAL_AUTO.equals(lastManualMode) && lastManualUntil > 0 &&
-                    System.currentTimeMillis() >= lastManualUntil && SecureStore.MANUAL_AUTO.equals(store.manualMode);
+            boolean observedDeadline = !SecureStore.MANUAL_AUTO.equals(lastManualMode) &&
+                    lastManualUntil > 0 && now >= lastManualUntil;
+            boolean autoReturned = SecureStore.MANUAL_AUTO.equals(store.manualMode) &&
+                    (expired || expiredByAlarm || observedDeadline);
             lastManualMode = store.manualMode;
             lastManualUntil = store.manualUntil;
             boolean wasRunning = !runningId.isEmpty();

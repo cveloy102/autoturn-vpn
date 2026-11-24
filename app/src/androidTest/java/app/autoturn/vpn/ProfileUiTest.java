@@ -114,7 +114,8 @@ public final class ProfileUiTest extends InstrumentationTestCase {
             if(notes!=null)getInstrumentation().runOnMainSync(() -> button(notes.getWindow().getDecorView(),"Понятно").performClick());
             call("navigateTo",new Class<?>[]{int.class},1);
             call("onActivityResult",new Class<?>[]{int.class,int.class,Intent.class},10,Activity.RESULT_OK,
-                    new Intent().setData(android.net.Uri.parse("content://app.autoturn.vpn.test.fixture/Fixture.conf")));
+                    new Intent().setData(android.net.Uri.parse("content://" +
+                            getInstrumentation().getContext().getPackageName() + ".fixture/Fixture.conf")));
             SecureStore saved=new SecureStore(context);
             assertEquals(baseline.profiles.size()+1,saved.profiles.size());
             Profile imported=saved.profiles.get(saved.profiles.size()-1);

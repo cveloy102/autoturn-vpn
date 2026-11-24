@@ -1,24 +1,14 @@
 package app.autoturn.vpn;
 
-import android.test.InstrumentationTestCase;
 
 /** Live-device scenarios are explicitly selected by the host runner. Never prints credentials. */
-public final class DeviceReliabilityTest extends InstrumentationTestCase {
+public final class DeviceReliabilityTest extends RoutingProbeTestCase {
     private android.content.Context context;
     private byte[] original;
     private SecureStore baseline;
     private java.io.File settings;
     private boolean live;
 
-    private String shell(String command) throws Exception {
-        try (android.os.ParcelFileDescriptor fd = getInstrumentation().getUiAutomation().executeShellCommand(command);
-             android.os.ParcelFileDescriptor.AutoCloseInputStream in = new android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)) {
-            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
-            byte[] buffer = new byte[8192]; int n;
-            while ((n = in.read(buffer)) >= 0) bytes.write(buffer, 0, n);
-            return bytes.toString("UTF-8");
-        }
-    }
 
     private void beginLive() throws Exception {
         context = getInstrumentation().getTargetContext();
@@ -97,7 +87,7 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
         store.selectedPackages.clear();
         store.onlyPackages.clear();
         store.excludedPackages.clear();
-        if (!AppPolicy.ALL.equals(routing)) store.selectedPackages.add("app.autoturn.vpn.test");
+        if (!AppPolicy.ALL.equals(routing)) store.selectedPackages.add(probePackage());
         if (AppPolicy.ONLY.equals(routing)) store.onlyPackages.addAll(store.selectedPackages);
         if (AppPolicy.EXCLUDE.equals(routing)) store.excludedPackages.addAll(store.selectedPackages);
         store.save();
@@ -206,12 +196,12 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
     }
 
     private void probeOtherApp(boolean expectedVpn) throws Exception {
-        shell("run-as app.autoturn.vpn.test rm -f files/routing-probe.json");
-        shell("am start -n app.autoturn.vpn.test/app.autoturn.vpn.RoutingProbeActivity");
+        shell("run-as " + probePackage() + " rm -f files/routing-probe.json");
+        shell("am start -n " + probePackage() + "/app.autoturn.vpn.RoutingProbeActivity");
         long end = android.os.SystemClock.elapsedRealtime() + 20000;
         String data = "";
         while (android.os.SystemClock.elapsedRealtime() < end) {
-            data = shell("run-as app.autoturn.vpn.test cat files/routing-probe.json").trim();
+            data = shell("run-as " + probePackage() + " cat files/routing-probe.json").trim();
             if (data.startsWith("{")) break;
             Thread.sleep(200);
         }
@@ -406,6 +396,48 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
         }
     }
 
+    public void testIslandAndCardFollowTheManualTimerAtHome() throws Exception {
+        beginLive();
+        configure(findProfile(Profile.AMNEZIA), true, AppPolicy.ALL);
+        String ssid = context.getSystemService(android.net.wifi.WifiManager.class).getConnectionInfo().getSSID();
+        assertNotNull(ssid);
+        assertFalse("Connect to visible Wi-Fi first", android.net.wifi.WifiManager.UNKNOWN_SSID.equals(ssid));
+        SecureStore store = new SecureStore(context);
+        store.homeSsids.clear();
+        store.homeSsids.add(ssid.replaceAll("^\"|\"$", ""));
+        store.liveIsland = true;
+        store.automation = true;
+        store.save();
+        command(SecureStore.MANUAL_ON);
+        waitState(StatusStore.ON, 45_000);
+        store = new SecureStore(context);
+        store.manualUntil = System.currentTimeMillis() + 3_000;
+        store.save("manualUntil"); refresh();
+        waitState(StatusStore.OFF, 15_000);
+        assertEquals(SecureStore.MANUAL_AUTO, new SecureStore(context).manualMode);
+
+        android.app.NotificationManager manager = context.getSystemService(android.app.NotificationManager.class);
+        boolean confirmed = false, homeCard = false;
+        long until = android.os.SystemClock.elapsedRealtime() + 4_000;
+        while ((!confirmed || !homeCard) && android.os.SystemClock.elapsedRealtime() < until) {
+            for (android.service.notification.StatusBarNotification shown : manager.getActiveNotifications()) {
+                android.app.Notification notification = shown.getNotification();
+                String title = notification.extras.getString(android.app.Notification.EXTRA_TITLE);
+                if (shown.getId() == LiveIsland.ID && "Снова Авто".equals(title)) {
+                    assertEquals(LiveIsland.STATUS_VISIBLE_MS, notification.getTimeoutAfter());
+                    confirmed = true;
+                }
+                if (shown.getId() == StatusNotification.ID && "Вы дома".equals(title)) {
+                    assertEquals("Включить VPN", notification.actions[0].title.toString());
+                    homeCard = true;
+                }
+            }
+            Thread.sleep(100);
+        }
+        assertTrue("Timer expiry posts Снова Авто", confirmed);
+        assertTrue("Status card offers to turn VPN back on at home", homeCard);
+    }
+
     private int tileState() throws Exception {
         String dump = shell("dumpsys activity service com.android.systemui/.SystemUIService");
         int start = dump.indexOf("spec=custom(app.autoturn.vpn/.VpnTileService)");
@@ -592,12 +624,21 @@ public final class DeviceReliabilityTest extends InstrumentationTestCase {
 
     public void testHysteriaConnectedWithoutTrafficFailover() throws Exception {
         beginLive();
-        Profile primary = findProfile(Profile.HYSTERIA2), backup = findProfile(Profile.AMNEZIA);
+        Profile backup = findProfile(Profile.AMNEZIA);
+        try (HysteriaLossFixture fault = new HysteriaLossFixture(context, findProfile(Profile.HYSTERIA2))) {
+            checkHysteriaTrafficLoss(fault, backup);
+        }
+    }
+
+    private void checkHysteriaTrafficLoss(HysteriaLossFixture fault, Profile backup) throws Exception {
+        Profile primary = fault.profile;
+        SecureStore prepared = new SecureStore(context);
+        prepared.profiles.add(primary); prepared.save();
         configure(primary, true, AppPolicy.ALL);
         SecureStore store = new SecureStore(context);
         store.profiles.clear(); store.profiles.add(primary); store.profiles.add(backup); store.save();
         command(SecureStore.MANUAL_ON); waitState(StatusStore.ON, 45000); verifyTraffic();
-        report("FAULT_READY: Hysteria connected and verified; host may block its UDP session");
+        fault.dropTraffic();
         long start = android.os.SystemClock.elapsedRealtime();
         boolean sawRecheck = false;
         while (android.os.SystemClock.elapsedRealtime() - start < 65000) {

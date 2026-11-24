@@ -10,10 +10,11 @@ import android.content.Intent;
 public final class AutoReturnReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context, Intent intent) {
         try {
-            SecureStore.expireManualMode(context, System.currentTimeMillis());
+            boolean expired = SecureStore.expireManualMode(context, System.currentTimeMillis());
             sync(context);
             context.startForegroundService(new Intent(context, AutomationService.class)
-                    .setAction(AutomationService.ACTION_REFRESH));
+                    .setAction(AutomationService.ACTION_REFRESH)
+                    .putExtra(AutomationService.EXTRA_TIMER_EXPIRED, expired));
         } catch (Exception ignored) {
             // The foreground service, screen wake, and next app open also check the deadline.
         }

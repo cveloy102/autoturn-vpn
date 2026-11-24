@@ -200,7 +200,7 @@ final class LiveIsland {
     void show(Content content) {
         if (!enabled) return;
         String key = content.key();
-        if (key.equals(shownKey)) return;
+        if (key.equals(shownKey) && (!content.kind.confirmation() || showing())) return;
         try {
             ensureChannel(context);
             manager().notify(ID, build(content));
@@ -288,7 +288,9 @@ final class LiveIsland {
             int dim = 0x59FFFFFF;
             if (content.kind == Kind.CONNECTING && content.current >= 0) {
                 int n = content.failedSegments.size();
-                float gap = n > 1 ? 22f : 0f, sweep = 360f / n - gap;
+                float segment = 360f / n;
+                float gap = n > 1 ? Math.min(22f, segment / 3f) : 0f;
+                float sweep = segment - gap;
                 for (int i = 0; i < n; i++) {
                     paint.setColor(content.failedSegments.get(i) ? RED : i == content.current ? 0xFFFFFFFF :
                             i < content.current ? GREEN : dim);

@@ -6,7 +6,6 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.SystemClock;
-import android.test.InstrumentationTestCase;
 import android.test.InstrumentationTestRunner;
 import org.amnezia.awg.crypto.KeyPair;
 import org.json.JSONObject;
@@ -16,7 +15,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 /** Opt-in device audits; real profiles require a separate flag. Settings are restored in tearDown. */
-public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
+public final class ProtectedModeDeviceTest extends RoutingProbeTestCase {
     private Context context;
     private byte[] original;
     private File settings;
@@ -41,9 +40,12 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
         java.lang.reflect.Method keyMethod = SecureStore.class.getDeclaredMethod("key"); keyMethod.setAccessible(true);
         javax.crypto.SecretKey secret = (javax.crypto.SecretKey) keyMethod.invoke(new SecureStore(context));
         JSONObject[] values = new JSONObject[2];
-        String[] names = {"audit-expected.enc", "settings.enc"};
-        for (int i = 0; i < names.length; i++) {
-            JSONObject envelope = new JSONObject(Files.readString(new File(context.getFilesDir(), names[i]).toPath()));
+        String baselinePath = ((InstrumentationTestRunner) getInstrumentation()).getArguments().getString("baselinePath");
+        File files = context.getFilesDir();
+        File[] snapshots = {baselinePath == null ? new File(files, "audit-expected.enc") : new File(baselinePath),
+                new File(files, "settings.enc")};
+        for (int i = 0; i < snapshots.length; i++) {
+            JSONObject envelope = new JSONObject(Files.readString(snapshots[i].toPath()));
             javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secret, new javax.crypto.spec.GCMParameterSpec(128,
                     android.util.Base64.decode(envelope.getString("iv"), android.util.Base64.NO_WRAP)));
@@ -63,12 +65,6 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
         getInstrumentation().sendStatus(0, out);
     }
 
-    private String shell(String command) throws Exception {
-        try (android.os.ParcelFileDescriptor fd = getInstrumentation().getUiAutomation().executeShellCommand(command);
-             java.io.InputStream in = new android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)) {
-            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        }
-    }
 
     private void refresh() {
         context.startForegroundService(new Intent(context, AutomationService.class).setAction(AutomationService.ACTION_REFRESH));
@@ -106,7 +102,7 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
         store.profiles.add(awg); store.profiles.add(hy2); store.primaryId = awg.id; store.activeId = awg.id;
         store.homeSsids.clear(); store.autoReturnHours = 0;
         Set<String> only = new LinkedHashSet<>(), excluded = new LinkedHashSet<>();
-        only.add("app.autoturn.vpn.test"); excluded.add("com.android.settings");
+        only.add(probePackage()); excluded.add("com.android.settings");
         store.setAppPolicy(mode, only, excluded);
         store.protectedMode = true; store.connectionGuard = true;
         store.save("protectedMode", "connectionGuard", "homeSsids", "autoReturnHours");
@@ -115,12 +111,12 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
     }
 
     private void blockedProbe(String phase) throws Exception {
-        shell("run-as app.autoturn.vpn.test rm -f files/routing-probe.json");
-        shell("am start -f 0x18000000 -n app.autoturn.vpn.test/app.autoturn.vpn.RoutingProbeActivity --ez udpDns true --ez blocked true");
+        shell("run-as " + probePackage() + " rm -f files/routing-probe.json");
+        shell("am start -f 0x18000000 -n " + probePackage() + "/app.autoturn.vpn.RoutingProbeActivity --ez udpDns true --ez blocked true");
         long until = SystemClock.elapsedRealtime() + 20000;
         JSONObject result = null;
         while (SystemClock.elapsedRealtime() < until) {
-            String text = shell("run-as app.autoturn.vpn.test cat files/routing-probe.json").trim();
+            String text = shell("run-as " + probePackage() + " cat files/routing-probe.json").trim();
             if (text.startsWith("{")) { result = new JSONObject(text); break; }
             Thread.sleep(100);
         }
@@ -145,7 +141,7 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
         for(Profile p:baseline.orderedProfiles())if(Profile.AMNEZIA.equals(p.type) && p.enabled){profile=p;break;}
         assertNotNull("Enabled real AWG profile",profile);SecureStore s=new SecureStore(context);
         s.profiles.clear();s.profiles.add(profile);s.primaryId=profile.id;s.activeId=profile.id;s.homeSsids.clear();s.autoReturnHours=0;
-        Set<String> only=new LinkedHashSet<>();only.add("app.autoturn.vpn.test");
+        Set<String> only=new LinkedHashSet<>();only.add(probePackage());
         s.setAppPolicy(AppPolicy.ONLY,only,new LinkedHashSet<>());s.protectedMode=true;s.connectionGuard=true;s.save();
         s.setControlMode(SecureStore.MANUAL_ON);refresh();waitProfile(profile.id);trafficProbe(true,"protected domain endpoint bootstrap");
         assertEquals("Original profile domain/config remains unchanged",profile.config,new SecureStore(context).activeProfile().config);
@@ -192,12 +188,12 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
             waitPhysical(NetworkCapabilities.TRANSPORT_CELLULAR);
             report("PHYSICAL mobile network configured; Wi-Fi disabled for the entire barrier audit");
         }
-        shell("run-as app.autoturn.vpn.test rm -f files/barrier-watch.json");
-        shell("am start -f 0x18000000 -n app.autoturn.vpn.test/app.autoturn.vpn.RoutingProbeActivity --ez barrierWatch true --ei watchMillis 3000" + watchTimeoutArgument());
+        shell("run-as " + probePackage() + " rm -f files/barrier-watch.json");
+        shell("am start -f 0x18000000 -n " + probePackage() + "/app.autoturn.vpn.RoutingProbeActivity --ez barrierWatch true --ei watchMillis 3000" + watchTimeoutArgument());
         long controlUntil = SystemClock.elapsedRealtime() + 15000;
         JSONObject control = null;
         while (SystemClock.elapsedRealtime() < controlUntil) {
-            String raw = shell("run-as app.autoturn.vpn.test cat files/barrier-watch.json").trim();
+            String raw = shell("run-as " + probePackage() + " cat files/barrier-watch.json").trim();
             if (raw.startsWith("{")) {
                 control = new JSONObject(raw);
                 if (control.optBoolean("complete")) break;
@@ -213,8 +209,8 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
         for (String mode : new String[] {AppPolicy.ONLY, AppPolicy.EXCLUDE}) {
             configure(mode);
             blockedProbe(mode + " manual OFF");
-            shell("run-as app.autoturn.vpn.test rm -f files/barrier-watch.json");
-            shell("am start -f 0x18000000 -n app.autoturn.vpn.test/app.autoturn.vpn.RoutingProbeActivity --ez barrierWatch true" + watchTimeoutArgument());
+            shell("run-as " + probePackage() + " rm -f files/barrier-watch.json");
+            shell("am start -f 0x18000000 -n " + probePackage() + "/app.autoturn.vpn.RoutingProbeActivity --ez barrierWatch true" + watchTimeoutArgument());
             new SecureStore(context).setControlMode(SecureStore.MANUAL_ON); refresh();
             boolean sawAllFailed = false;
             ConnectivityManager cm = context.getSystemService(ConnectivityManager.class);
@@ -252,7 +248,7 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
         long watchUntil = SystemClock.elapsedRealtime() + 50000;
         JSONObject watch = null;
         while (SystemClock.elapsedRealtime() < watchUntil) {
-            String raw = shell("run-as app.autoturn.vpn.test cat files/barrier-watch.json").trim();
+            String raw = shell("run-as " + probePackage() + " cat files/barrier-watch.json").trim();
             if (raw.startsWith("{")) {
                 watch = new JSONObject(raw);
                 assertEquals("No external TLS escape", 0, watch.optInt("tlsConnected"));
@@ -279,13 +275,13 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
         // HOLD does not start or parse a qWDTT transport. Only its UID exemption changes.
         Profile turn = new Profile("Held qWDTT fixture", Profile.QWDTT, "{}");
         store.profiles.add(turn); store.save();
-        shell("run-as app.autoturn.vpn.test rm -f files/barrier-watch.json");
-        shell("am start -f 0x18000000 -n app.autoturn.vpn.test/app.autoturn.vpn.RoutingProbeActivity --ez barrierWatch true");
+        shell("run-as " + probePackage() + " rm -f files/barrier-watch.json");
+        shell("am start -f 0x18000000 -n " + probePackage() + "/app.autoturn.vpn.RoutingProbeActivity --ez barrierWatch true");
         for (String mode : new String[] {AppPolicy.ONLY, AppPolicy.EXCLUDE}) {
             for (String id : new String[] {turn.id, awgId}) {
                 store = new SecureStore(context);
                 Set<String> only = new LinkedHashSet<>(), excluded = new LinkedHashSet<>();
-                only.add("app.autoturn.vpn.test"); excluded.add("com.android.settings");
+                only.add(probePackage()); excluded.add("com.android.settings");
                 store.setAppPolicy(mode, only, excluded);
                 store.activeId = id; store.primaryId = id; store.save("activeId", "primaryId");
                 refresh(); Thread.sleep(500); waitState(StatusStore.BLOCKED, 15000);
@@ -320,7 +316,7 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
             s.profiles.add(new Profile(primary.id,primary.name,primary.type,primary.config,false,true));
             s.profiles.add(new Profile(reserve.id,reserve.name,reserve.type,reserve.config,false,true));
             s.primaryId=primary.id;s.activeId=primary.id;s.homeSsids.clear();s.autoReturnHours=0;
-            Set<String> only=new LinkedHashSet<>();only.add("app.autoturn.vpn.test");
+            Set<String> only=new LinkedHashSet<>();only.add(probePackage());
             s.setAppPolicy(AppPolicy.ONLY,only,new LinkedHashSet<>());
             s.protectedMode=protectedMode;s.connectionGuard=true;s.save();s.setControlMode(SecureStore.MANUAL_ON);
             refresh();waitProfile(primary.id);trafficProbe(true,"primary, protected="+protectedMode);
@@ -375,7 +371,7 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
         assertNotNull(primary);stopForRestore();SecureStore s=new SecureStore(context);
         s.profiles.clear();s.profiles.add(new Profile(primary.id,primary.name,primary.type,primary.config,false,true));
         s.primaryId=primary.id;s.activeId=primary.id;s.connectionGuard=true;s.autoReturnHours=0;
-        Set<String> only=new LinkedHashSet<>();only.add("app.autoturn.vpn.test");
+        Set<String> only=new LinkedHashSet<>();only.add(probePackage());
         s.setAppPolicy(AppPolicy.ONLY,only,new LinkedHashSet<>());s.save();refresh();waitState(StatusStore.OFF,15000);
         MainActivity activity=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         try {
@@ -406,7 +402,7 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
             String routing = ((InstrumentationTestRunner) getInstrumentation()).getArguments()
                     .getString("protectedAppMode", AppPolicy.ONLY);
             Set<String> only = new LinkedHashSet<>(), excluded = new LinkedHashSet<>();
-            only.add("app.autoturn.vpn.test"); only.add("com.android.chrome"); excluded.add("com.android.settings");
+            only.add(probePackage()); only.add("com.android.chrome"); excluded.add("com.android.settings");
             store.setAppPolicy(routing, only, excluded);
             store.protectedMode = true; store.connectionGuard = true; store.save();
             store.setControlMode(SecureStore.MANUAL_ON); refresh();
@@ -417,12 +413,12 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
             }
             assertEquals("Profile connected: " + profile.name + "; " + StatusStore.detail(context),
                     StatusStore.ON, StatusStore.state(context));
-            shell("run-as app.autoturn.vpn.test rm -f files/routing-probe.json");
-            shell("am start -f 0x18000000 -n app.autoturn.vpn.test/app.autoturn.vpn.RoutingProbeActivity --ez udpDns true --ez audit true");
+            shell("run-as " + probePackage() + " rm -f files/routing-probe.json");
+            shell("am start -f 0x18000000 -n " + probePackage() + "/app.autoturn.vpn.RoutingProbeActivity --ez udpDns true --ez audit true");
             until = SystemClock.elapsedRealtime() + 65000;
             JSONObject result = null;
             while (SystemClock.elapsedRealtime() < until) {
-                String raw = shell("run-as app.autoturn.vpn.test cat files/routing-probe.json").trim();
+                String raw = shell("run-as " + probePackage() + " cat files/routing-probe.json").trim();
                 if (raw.startsWith("{")) { result = new JSONObject(raw); break; }
                 Thread.sleep(200);
             }
@@ -532,12 +528,12 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
             Thread.sleep(100);
         } while (SystemClock.elapsedRealtime() < networkUntil);
         assertEquals("Android VPN network settled before independent probe", vpn, present);
-        shell("run-as app.autoturn.vpn.test rm -f files/routing-probe.json");
-        shell("am start -f 0x18000000 -n app.autoturn.vpn.test/app.autoturn.vpn.RoutingProbeActivity --ez udpDns true");
+        shell("run-as " + probePackage() + " rm -f files/routing-probe.json");
+        shell("am start -f 0x18000000 -n " + probePackage() + "/app.autoturn.vpn.RoutingProbeActivity --ez udpDns true");
         long until = SystemClock.elapsedRealtime() + 30000;
         JSONObject result = null;
         while (SystemClock.elapsedRealtime() < until) {
-            String raw = shell("run-as app.autoturn.vpn.test cat files/routing-probe.json").trim();
+            String raw = shell("run-as " + probePackage() + " cat files/routing-probe.json").trim();
             if (raw.startsWith("{")) { result = new JSONObject(raw); break; }
             Thread.sleep(200);
         }
@@ -565,7 +561,7 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
         SecureStore store = new SecureStore(context);
         store.profiles.clear(); store.profiles.add(selected); store.activeId = selected.id; store.primaryId = selected.id;
         store.homeSsids.clear(); store.homeSsids.add(name.group(1)); store.autoReturnHours = 0;
-        store.appMode = AppPolicy.ONLY; store.onlyPackages.clear(); store.onlyPackages.add("app.autoturn.vpn.test");
+        store.appMode = AppPolicy.ONLY; store.onlyPackages.clear(); store.onlyPackages.add(probePackage());
         store.selectedPackages.clear(); store.selectedPackages.addAll(store.onlyPackages);
         store.protectedMode = true; store.connectionGuard = true; store.save();
         store.setControlMode(SecureStore.MANUAL_AUTO); refresh(); waitState(StatusStore.OFF, 15000);
@@ -615,7 +611,7 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
                 SecureStore store = new SecureStore(context);
                 store.profiles.clear(); store.profiles.add(profile); store.activeId = profile.id; store.primaryId = profile.id;
                 store.homeSsids.clear(); store.autoReturnHours = 0; store.appMode = AppPolicy.ONLY;
-                store.onlyPackages.clear(); store.onlyPackages.add("app.autoturn.vpn.test");
+                store.onlyPackages.clear(); store.onlyPackages.add(probePackage());
                 store.selectedPackages.clear(); store.selectedPackages.addAll(store.onlyPackages);
                 store.protectedMode = true; store.connectionGuard = true; store.save();
                 store.setControlMode(SecureStore.MANUAL_ON); refresh(); waitState(StatusStore.ON, 45000);
@@ -700,18 +696,21 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
         SecureStore baseline = new SecureStore(context);
         String originalSsid = wifiSsid();
         restoreWifiSsid = originalSsid;
-        String initialSsid = ((InstrumentationTestRunner) getInstrumentation()).getArguments().getString("plainWifiSsid", originalSsid);
+        android.os.Bundle args = ((InstrumentationTestRunner) getInstrumentation()).getArguments();
+        String initialSsid = args.getString("plainWifiSsid", originalSsid);
+        String homeSsid = args.getString("homeWifiSsid");
         assertFalse("Initial Wi-Fi connected", initialSsid.isEmpty());
-        assertFalse("Alternate Wi-Fi must differ from the home test network", "Keen_5G".equals(initialSsid));
+        assertNotNull("Pass the second saved network as homeWifiSsid", homeSsid);
+        assertFalse("The two Wi-Fi networks must differ", homeSsid.isEmpty() || homeSsid.equals(initialSsid));
         try {
             switchSavedWifi(initialSsid);
             configure(AppPolicy.ONLY);
             blockedProbe("plain router before saved-network switch");
-            shell("run-as app.autoturn.vpn.test rm -f files/barrier-watch.json");
-            shell("am start -f 0x18000000 -n app.autoturn.vpn.test/app.autoturn.vpn.RoutingProbeActivity --ez barrierWatch true");
-            switchSavedWifi("Keen_5G"); blockedProbe("held VPN on Keen_5G");
+            shell("run-as " + probePackage() + " rm -f files/barrier-watch.json");
+            shell("am start -f 0x18000000 -n " + probePackage() + "/app.autoturn.vpn.RoutingProbeActivity --ez barrierWatch true");
+            switchSavedWifi(homeSsid); blockedProbe("held VPN on home Wi-Fi");
             switchSavedWifi(initialSsid); blockedProbe("held VPN back on plain router");
-            assertWatch("plain router -> Keen_5G -> plain router");
+            assertWatch("plain router -> home Wi-Fi -> plain router");
             stopForRestore();
             Profile selected = null;
             for (Profile profile : baseline.orderedProfiles())
@@ -719,14 +718,14 @@ public final class ProtectedModeDeviceTest extends InstrumentationTestCase {
             assertNotNull("Installed Hysteria", selected);
             SecureStore store = new SecureStore(context);
             store.profiles.clear(); store.profiles.add(selected); store.activeId = selected.id; store.primaryId = selected.id;
-            store.homeSsids.clear(); store.homeSsids.add("Keen_5G"); store.autoReturnHours = 0;
-            store.appMode = AppPolicy.ONLY; store.onlyPackages.clear(); store.onlyPackages.add("app.autoturn.vpn.test");
+            store.homeSsids.clear(); store.homeSsids.add(homeSsid); store.autoReturnHours = 0;
+            store.appMode = AppPolicy.ONLY; store.onlyPackages.clear(); store.onlyPackages.add(probePackage());
             store.selectedPackages.clear(); store.selectedPackages.addAll(store.onlyPackages);
             store.protectedMode = true; store.connectionGuard = true; store.save();
             store.setControlMode(SecureStore.MANUAL_AUTO); refresh(); waitState(StatusStore.ON, 45000);
             trafficProbe(true, "AUTO away on plain router");
-            switchSavedWifi("Keen_5G"); waitState(StatusStore.OFF, 20000);
-            trafficProbe(false, "AUTO intentionally releases phone VPN at Keen_5G home");
+            switchSavedWifi(homeSsid); waitState(StatusStore.OFF, 20000);
+            trafficProbe(false, "AUTO releases the phone VPN at home");
             switchSavedWifi(initialSsid); waitState(StatusStore.ON, 45000);
             trafficProbe(true, "AUTO reconnects after returning to plain router");
         } finally { switchSavedWifi(originalSsid); }
