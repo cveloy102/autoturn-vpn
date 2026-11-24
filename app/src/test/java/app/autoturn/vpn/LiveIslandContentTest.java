@@ -37,7 +37,8 @@ public class LiveIslandContentTest {
         for (LiveIsland.Content content : new LiveIsland.Content[]{
                 LiveIsland.Content.connecting("a", "", Arrays.asList(false, false, false, false, false, false, false, false, false, false), 9),
                 LiveIsland.Content.captcha(), LiveIsland.Content.noNetwork(),
-                LiveIsland.Content.permissionLost(),
+                LiveIsland.Content.permissionLost(), LiveIsland.Content.home("Keen_5G"),
+                LiveIsland.Content.manualOff(true, "04:10"), LiveIsland.Content.autoReturn("Дома · VPN выключен"),
                 LiveIsland.Content.done("Очень длинное имя профиля для Нидерландов", "Hysteria 2")})
             assertTrue(content.chip, content.chip.length() <= LiveIsland.CHIP_MAX);
     }
@@ -63,6 +64,33 @@ public class LiveIslandContentTest {
         assertEquals("Нидерланды…", content.chip);
         assertEquals("abc", LiveIsland.Content.shorten("abc", 3));
         assertEquals("ab…", LiveIsland.Content.shorten("abcd", 3));
+    }
+
+    @Test public void confirmationsAllLastSevenSeconds() {
+        assertEquals(7_000, LiveIsland.STATUS_VISIBLE_MS);
+        for (LiveIsland.Content content : new LiveIsland.Content[]{LiveIsland.Content.done("a", "Hysteria 2"),
+                LiveIsland.Content.home("Keen_5G"), LiveIsland.Content.manualOff(false, null),
+                LiveIsland.Content.autoReturn("Дома · VPN выключен")}) {
+            assertEquals(content.title, LiveIsland.STATUS_VISIBLE_MS, content.timeoutMs);
+            assertTrue(content.kind.confirmation());
+        }
+        assertFalse(LiveIsland.Kind.CONNECTING.confirmation());
+        assertFalse(LiveIsland.Kind.CAPTCHA.confirmation());
+    }
+
+    @Test public void homeOffAndAutoTexts() {
+        LiveIsland.Content home = LiveIsland.Content.home("Keen_5G");
+        assertEquals("Вы дома", home.title);
+        assertEquals("Keen_5G · VPN выключен", home.text);
+        assertEquals("Дома", home.chip);
+        assertEquals("Домашний Wi-Fi · VPN выключен", LiveIsland.Content.home("").text);
+        LiveIsland.Content off = LiveIsland.Content.manualOff(true, "04:10");
+        assertEquals("VPN выключен", off.title);
+        assertEquals("Выключен вручную · трафик заблокирован · Авто в 04:10", off.text);
+        assertEquals("Выключен вручную", LiveIsland.Content.manualOff(false, null).text);
+        LiveIsland.Content auto = LiveIsland.Content.autoReturn("Вне дома · VPN остаётся включённым");
+        assertEquals("Снова Авто", auto.title);
+        assertEquals("Авто", auto.chip);
     }
 
     @Test public void longWaitsDoNotBecomePermanent() {

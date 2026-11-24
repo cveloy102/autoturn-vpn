@@ -25,8 +25,9 @@ final class LiveIsland {
     static final String CHANNEL = "live-status";
     // 100 is the status card, 103 the qWDTT captcha prompt.
     static final int ID = 110;
-    // Long enough to read where AutoTurn connected; then the island leaves by itself.
-    static final long DONE_VISIBLE_MS = 10_000;
+    // Every short status (connected, home, off, back to Auto) stays the same 7 seconds.
+    static final long STATUS_VISIBLE_MS = 7_000;
+    static final long DONE_VISIBLE_MS = STATUS_VISIBLE_MS;
     // Profile names are user text of any length: keep the title and the island chip short.
     static final int TITLE_NAME_MAX = 20;
     static final int CHIP_MAX = 12;
@@ -38,7 +39,13 @@ final class LiveIsland {
     private static final int GREEN = 0xFF3FA06A;
 
     enum Availability { READY, NOTIFICATIONS_OFF, CHANNEL_OFF, PROMOTION_OFF, UNSUPPORTED }
-    enum Kind { CONNECTING, CAPTCHA, PAUSE, NO_NETWORK, PERMISSION, DONE }
+    enum Kind {
+        CONNECTING, CAPTCHA, PAUSE, NO_NETWORK, PERMISSION,
+        // Short confirmations: they leave by their own timeout, routine decisions do not clear them.
+        DONE, HOME, OFF, AUTO;
+
+        boolean confirmation() { return this == DONE || this == HOME || this == OFF || this == AUTO; }
+    }
 
     /** What one island state shows. Pure data, so the wording is unit-tested without Android. */
     static final class Content {
@@ -106,6 +113,24 @@ final class LiveIsland {
             return new Content(Kind.DONE, named ? "На связи · " + shorten(profileName, TITLE_NAME_MAX) : "На связи",
                     "Доступ проверен" + (protocol == null || protocol.isEmpty() ? "" : " · " + protocol),
                     named ? shorten(profileName, CHIP_MAX) : "Готово", Collections.emptyList(), -1, false, 0, DONE_VISIBLE_MS);
+        }
+
+        /** AutoTurn switched the VPN off because a home Wi-Fi appeared. */
+        static Content home(String network) {
+            String name = shorten(network, TITLE_NAME_MAX);
+            return new Content(Kind.HOME, "Вы дома", (name.isEmpty() ? "Домашний Wi-Fi" : name) + " · VPN выключен",
+                    "Дома", Collections.emptyList(), -1, false, 0, STATUS_VISIBLE_MS);
+        }
+
+        /** Turned off by hand (app, tile, card button). autoAt = when Auto returns, or null. */
+        static Content manualOff(boolean blocked, String autoAt) {
+            return new Content(Kind.OFF, "VPN выключен", "Выключен вручную" + (blocked ? " · трафик заблокирован" : "") +
+                    (autoAt == null ? "" : " · Авто в " + autoAt), "Выкл", Collections.emptyList(), -1, false, 0, STATUS_VISIBLE_MS);
+        }
+
+        /** The manual mode's timer ran out and AutoTurn is back in Auto. */
+        static Content autoReturn(String what) {
+            return new Content(Kind.AUTO, "Снова Авто", what, "Авто", Collections.emptyList(), -1, false, 0, STATUS_VISIBLE_MS);
         }
 
         /** One line, at most max characters (code points), with an ellipsis when cut. */
@@ -186,8 +211,14 @@ final class LiveIsland {
 
     /** Ends a transition with «На связи»; ignored when nothing was shown (routine health checks). */
     void done(Profile profile) {
-        if (!showing() || shownKind == Kind.DONE) return;
+        if (!showing() || shownKind.confirmation()) return;
         show(Content.done(profile == null ? null : profile.name, protocol(profile)));
+    }
+
+    /** Ends a transition in progress; a short confirmation on screen stays until its timeout. */
+    void clearProgress() {
+        if (showing() && shownKind != null && shownKind.confirmation()) return;
+        clear();
     }
 
     void clear() {
@@ -266,7 +297,7 @@ final class LiveIsland {
                 paint.setColor(0xFFFFFFFF);
                 canvas.drawArc(box, -90, 100, false, paint);
             } else {
-                paint.setColor(content.kind == Kind.DONE ? GREEN :
+                paint.setColor(content.kind == Kind.DONE ? GREEN : content.kind == Kind.AUTO ? 0xFFFFFFFF :
                         content.kind == Kind.CAPTCHA || content.kind == Kind.PERMISSION ? RED : dim);
                 canvas.drawArc(box, 0, 360, false, paint);
             }

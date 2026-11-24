@@ -35,7 +35,13 @@ public final class LiveIslandDemoTest extends InstrumentationTestCase {
             island.show(LiveIsland.Content.permissionLost());
             Thread.sleep(hold);
             island.show(LiveIsland.Content.done("Нидерланды Амстердам резервный сервер", "VLESS · Reality"));
-            Thread.sleep(LiveIsland.DONE_VISIBLE_MS + 1000);
+            Thread.sleep(hold);
+            island.show(LiveIsland.Content.home("Keen_5G"));
+            Thread.sleep(hold);
+            island.show(LiveIsland.Content.manualOff(false, "04:10"));
+            Thread.sleep(hold);
+            island.show(LiveIsland.Content.autoReturn("Дома · VPN выключен"));
+            Thread.sleep(LiveIsland.STATUS_VISIBLE_MS + 1000);
         } finally {
             island.clear();
         }

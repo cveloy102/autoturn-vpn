@@ -78,6 +78,9 @@ public final class AutomationService extends Service {
     // The profile the island last said it was connecting to, for «На связи · name».
     private Profile islandProfile;
     private BroadcastReceiver statusReceiver;
+    // Mode seen by the previous decision: tells a timer's return to Auto from other changes.
+    private String lastManualMode = "";
+    private long lastManualUntil;
     private final Tunnel tunnel = new Tunnel() {
         @Override public String getName() { return "AutoTurn"; }
         @Override public void onStateChange(State state) { }
@@ -211,7 +214,8 @@ public final class AutomationService extends Service {
         if (callback != null) connectivity.unregisterNetworkCallback(callback);
         if (vpnCallback != null) connectivity.unregisterNetworkCallback(vpnCallback);
         worker.execute(() -> {
-            clearIsland();
+            islandFailed.clear();
+            island.clear();
             try {
                 SecureStore store = new SecureStore(this);
                 if (needsProtection(store)) {
@@ -248,6 +252,11 @@ public final class AutomationService extends Service {
             SecureStore.expireManualMode(this, System.currentTimeMillis());
             store = new SecureStore(this);
             island.setEnabled(store.liveIsland);
+            boolean autoReturned = !SecureStore.MANUAL_AUTO.equals(lastManualMode) && lastManualUntil > 0 &&
+                    System.currentTimeMillis() >= lastManualUntil && SecureStore.MANUAL_AUTO.equals(store.manualMode);
+            lastManualMode = store.manualMode;
+            lastManualUntil = store.manualUntil;
+            boolean wasRunning = !runningId.isEmpty();
             handler.removeCallbacks(returnToAuto);
             if (!SecureStore.MANUAL_AUTO.equals(store.manualMode) && store.manualUntil > 0)
                 handler.postDelayed(returnToAuto, Math.max(1, store.manualUntil - System.currentTimeMillis()));
@@ -260,14 +269,19 @@ public final class AutomationService extends Service {
             }
             Profile candidate = store.activeProfile();
             if (SecureStore.MANUAL_OFF.equals(store.manualMode)) {
-                if (needsProtection(store)) holdProtection("VPN остановлен · трафик заблокирован");
+                boolean blockedOff = needsProtection(store);
+                if (blockedOff) holdProtection("VPN остановлен · трафик заблокирован");
                 else {
                     stopCurrent();
                     StatusStore.set(this, StatusStore.OFF, "VPN выключен вручную");
                 }
                 clearHealth();
                 guardProfileId = "";
-                clearIsland();
+                if (wasRunning) {
+                    islandFailed.clear();
+                    island.show(LiveIsland.Content.manualOff(blockedOff, store.manualUntil > 0 ?
+                            StatusNotification.Content.until(store.manualUntil, System.currentTimeMillis()) : null));
+                } else clearIsland();
                 updateNotification();
                 return;
             }
@@ -297,7 +311,10 @@ public final class AutomationService extends Service {
                 stopCurrent();
                 clearHealth();
                 guardProfileId = "";
-                clearIsland();
+                islandFailed.clear();
+                if (autoReturned) island.show(LiveIsland.Content.autoReturn("Дома · VPN выключен"));
+                else if (wasRunning) island.show(LiveIsland.Content.home(ssid));
+                else clearIsland();
                 StatusStore.set(this, StatusStore.OFF, "Домашний Wi-Fi · VPN выключен");
                 updateNotification();
                 return;
@@ -331,6 +348,7 @@ public final class AutomationService extends Service {
                     !StatusStore.ERROR.equals(StatusStore.state(this))) {
                 if (guardEnabled(store) && !healthScheduled)
                     scheduleHealth(verified ? HealthSchedule.healthyInterval(Math.max(1, healthyStreak)) : 1000);
+                if (autoReturned) island.show(LiveIsland.Content.autoReturn("Вне дома · VPN остаётся включённым"));
                 return;
             }
             stopCurrent(store.protectedMode);
@@ -678,9 +696,10 @@ public final class AutomationService extends Service {
         island.show(LiveIsland.Content.connecting(profile.name, LiveIsland.protocol(profile), failed, current));
     }
 
+    /** Ends a transition in progress; short confirmations (home, off, …) leave by their own timeout. */
     private void clearIsland() {
         islandFailed.clear();
-        if (island != null) island.clear();
+        if (island != null) island.clearProgress();
     }
 
     /** Worker thread. Catches "connected" and "off" reported by tunnels in other processes. */
