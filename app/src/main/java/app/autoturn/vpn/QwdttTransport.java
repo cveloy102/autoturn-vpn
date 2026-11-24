@@ -173,7 +173,7 @@ final class QwdttTransport implements AutoCloseable {
         Intent open = new Intent(context, QwdttCaptchaActivity.class)
                 .putExtra("session", session).putExtra("request", state.getString("captchaRequest"));
         manager.notify(CAPTCHA_NOTIFICATION, new Notification.Builder(context, "qwdtt-captcha")
-                .setSmallIcon(android.R.drawable.ic_dialog_alert).setContentTitle("AutoTurn · капча VK")
+                .setSmallIcon(R.drawable.ic_stat_autoturn).setColor(TerminalUi.NOTIFICATION_COLOR).setContentTitle("AutoTurn · капча VK")
                 .setContentText("Нажмите, чтобы продолжить подключение qWDTT")
                 .setContentIntent(PendingIntent.getActivity(context, 103, open,
                         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).setAutoCancel(true).build());

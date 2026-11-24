@@ -332,7 +332,7 @@ public final class ProtectedVpnService extends VpnService {
         PendingIntent open = PendingIntent.getActivity(this, 104, new Intent(this, MainActivity.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL).setContentTitle("AutoTurn · Защищённый режим")
-                .setContentText(detail).setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentText(detail).setSmallIcon(R.drawable.ic_stat_autoturn).setColor(TerminalUi.NOTIFICATION_COLOR)
                 .setContentIntent(open).setOngoing(true).build();
     }
 

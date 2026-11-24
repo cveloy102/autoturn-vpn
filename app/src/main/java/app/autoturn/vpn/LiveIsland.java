@@ -200,7 +200,7 @@ final class LiveIsland {
         Intent open = new Intent(context, MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         Notification.Builder builder = new Notification.Builder(context, CHANNEL)
-                .setSmallIcon(ring(content))
+                .setSmallIcon(ring(content)).setColor(TerminalUi.NOTIFICATION_COLOR)
                 .setContentTitle(content.title)
                 .setContentText(content.text)
                 .setOngoing(true)  // Live Updates must be ongoing; DONE leaves by timeout
@@ -215,11 +215,11 @@ final class LiveIsland {
         } else builder.setShowWhen(false);
         if (content.kind == Kind.PAUSE) {
             Intent retry = new Intent(context, AutomationService.class).setAction(AutomationService.ACTION_RESTART_QUEUE);
-            builder.addAction(new Notification.Action.Builder(Icon.createWithResource(context, R.drawable.ic_vpn_tile),
+            builder.addAction(new Notification.Action.Builder(Icon.createWithResource(context, R.drawable.ic_stat_autoturn),
                     "Повторить сейчас", PendingIntent.getForegroundService(context, 202, retry,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).build());
         } else if (content.kind == Kind.CAPTCHA) {
-            builder.addAction(new Notification.Action.Builder(Icon.createWithResource(context, R.drawable.ic_vpn_tile),
+            builder.addAction(new Notification.Action.Builder(Icon.createWithResource(context, R.drawable.ic_stat_autoturn),
                     "Открыть капчу", PendingIntent.getActivity(context, 203, open,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).build());
         }
@@ -269,14 +269,14 @@ final class LiveIsland {
                         content.kind == Kind.CAPTCHA || content.kind == Kind.PERMISSION ? RED : dim);
                 canvas.drawArc(box, 0, 360, false, paint);
             }
-            android.graphics.drawable.Drawable mark = context.getDrawable(R.drawable.ic_vpn_tile);
+            android.graphics.drawable.Drawable mark = context.getDrawable(R.drawable.ic_stat_autoturn);
             if (mark != null) {
                 mark.setBounds(28, 28, size - 28, size - 28);
                 mark.draw(canvas);
             }
             return Icon.createWithBitmap(bitmap);
         } catch (RuntimeException e) {
-            return Icon.createWithResource(context, R.drawable.ic_vpn_tile);
+            return Icon.createWithResource(context, R.drawable.ic_stat_autoturn);
         }
     }
 

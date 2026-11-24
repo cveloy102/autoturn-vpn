@@ -767,7 +767,7 @@ public final class AutomationService extends Service {
         return new Notification.Builder(this, CHANNEL)
                 .setContentTitle("AutoTurn")
                 .setContentText(text)
-                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setSmallIcon(R.drawable.ic_stat_autoturn).setColor(TerminalUi.NOTIFICATION_COLOR)
                 .setOngoing(true)
                 .build();
     }

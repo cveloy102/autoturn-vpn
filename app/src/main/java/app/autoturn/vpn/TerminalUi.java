@@ -18,6 +18,8 @@ final class TerminalUi {
 
     /** Corner radius for cards, rows and buttons (Terminal 2.0). */
     static final int RADIUS = 14;
+    // Brand red for notification badges and accents; Android decides where (and whether) to use it.
+    static final int NOTIFICATION_COLOR = 0xFFF0443E;
     private static Typeface mono, display, sans;
 
     static int dp(Context context, int value) {
