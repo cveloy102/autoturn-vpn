@@ -44,6 +44,8 @@ public final class Profiles130DeviceTest extends RoutingProbeTestCase {
         if(home.startsWith("\"")&&home.endsWith("\""))home=home.substring(1,home.length()-1);
         Profile q=qwdtts().get(0);SecureStore s=new SecureStore(context);
         s.profiles.clear();s.profiles.add(q);s.primaryId=q.id;s.activeId=q.id;allApps(s);
+        // Ordinary mode: with protection, manual OFF away from home correctly keeps traffic blocked.
+        s.protectedMode=false;
         s.homeSsids.clear();s.homeSsids.add("QA different home");s.homeSsids.add(home);s.save();
         mode(SecureStore.MANUAL_AUTO);waitState(StatusStore.OFF,10000);
         assertTrue(StatusStore.detail(context).startsWith("Домашний Wi"));

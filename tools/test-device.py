@@ -113,6 +113,10 @@ def main():
                 continue
             shell("input", "keyevent", "KEYCODE_WAKEUP")
             shell("wm", "dismiss-keyguard")
+            # Screen-off and Doze cases fake an unplugged battery; "stay on while plugged in"
+            # can still wake the screen there, so they run without it.
+            sleeps = re.search(r"ScreenOff|Doze|Sleep", case) is not None
+            shell("svc", "power", "stayon", "false" if sleeps else "usb")
             print("RUN ", case, flush=True)
             try:
                 command = ["am", "instrument", "-w", "-r", *extras, "-e", "class", PACKAGE + "." + case, RUNNER]

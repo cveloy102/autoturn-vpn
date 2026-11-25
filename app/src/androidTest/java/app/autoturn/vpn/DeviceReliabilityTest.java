@@ -643,7 +643,8 @@ public final class DeviceReliabilityTest extends RoutingProbeTestCase {
         boolean sawRecheck = false;
         while (android.os.SystemClock.elapsedRealtime() - start < 65000) {
             SecureStore current = new SecureStore(context);
-            if (primary.id.equals(current.activeId) && StatusStore.detail(context).contains("перепроверяем")) {
+            // AutomationService.finishHealth: one failed probe keeps the tunnel and checks again.
+            if (primary.id.equals(current.activeId) && StatusStore.detail(context).startsWith("Проверяем доступ через VPN")) {
                 assertTrue("Tunnel stays up while traffic fails", shell("dumpsys connectivity").contains("AutoTurn Hysteria 2"));
                 sawRecheck = true;
             }
