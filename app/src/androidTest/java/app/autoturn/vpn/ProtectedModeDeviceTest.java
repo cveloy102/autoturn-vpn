@@ -45,7 +45,7 @@ public final class ProtectedModeDeviceTest extends RoutingProbeTestCase {
         File[] snapshots = {baselinePath == null ? new File(files, "audit-expected.enc") : new File(baselinePath),
                 new File(files, "settings.enc")};
         for (int i = 0; i < snapshots.length; i++) {
-            JSONObject envelope = new JSONObject(Files.readString(snapshots[i].toPath()));
+            JSONObject envelope = new JSONObject(TestIo.text(snapshots[i].toPath()));
             javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secret, new javax.crypto.spec.GCMParameterSpec(128,
                     android.util.Base64.decode(envelope.getString("iv"), android.util.Base64.NO_WRAP)));

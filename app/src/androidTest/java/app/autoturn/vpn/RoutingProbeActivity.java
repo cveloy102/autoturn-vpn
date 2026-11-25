@@ -76,7 +76,7 @@ public final class RoutingProbeActivity extends android.app.Activity {
                             new java.net.URL("https://api.ipify.org?format=json").openConnection();
                     ip.setConnectTimeout(10000); ip.setReadTimeout(10000); ip.setUseCaches(false);
                     try (java.io.InputStream in = ip.getInputStream()) {
-                        result.put("egress", new org.json.JSONObject(new String(in.readAllBytes(),
+                        result.put("egress", new org.json.JSONObject(new String(TestIo.bytes(in),
                                 java.nio.charset.StandardCharsets.UTF_8)).getString("ip"));
                     } finally { ip.disconnect(); }
                     java.net.HttpURLConnection payload = (java.net.HttpURLConnection)

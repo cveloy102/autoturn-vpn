@@ -33,7 +33,7 @@ public final class EndpointResolverTest extends InstrumentationTestCase {
         EndpointResolver resolver=new EndpointResolver(context,()->true,host->{calls.incrementAndGet();return new BootstrapDns.Answer(new byte[]{1,2,3,4},60);});
         assertEquals("1.2.3.4",resolver.resolve("Endpoint.Example."));assertEquals(1,calls.get());
         assertEquals("1.2.3.4",offline().resolve("endpoint.example"));
-        String encrypted=Files.readString(new File(directory,"endpoint-cache.enc").toPath());
+        String encrypted=TestIo.text(new File(directory,"endpoint-cache.enc").toPath());
         assertFalse(encrypted.contains("endpoint.example"));assertFalse(encrypted.contains("1.2.3.4"));
         EndpointCache.Entry read=new EndpointCache(context).get("endpoint.example");assertNotNull(read);assertTrue(read.fresh(System.currentTimeMillis()));
     }
@@ -49,7 +49,7 @@ public final class EndpointResolverTest extends InstrumentationTestCase {
         rejects(()->offline().resolve("missing.example"));
         new EndpointCache(context).put("old.example","1.2.3.4",0,System.currentTimeMillis()-30L*24*60*60*1000);
         assertEquals("A static VPS hint remains usable while DNS is blocked","1.2.3.4",offline().resolve("old.example"));
-        Files.writeString(new File(directory,"endpoint-cache.enc").toPath(),"corrupted");
+        Files.write(new File(directory,"endpoint-cache.enc").toPath(),"corrupted".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         rejects(()->offline().resolve("old.example"));
     }
     public void testCancellationNeverUsesEvenFreshCache() throws Exception {
@@ -100,7 +100,7 @@ public final class EndpointResolverTest extends InstrumentationTestCase {
         BootstrapNetworkDns config=new BootstrapNetworkDns(context,directory,"fixture");
         File file=new File(config.argument().substring("network:".length()));
         try {
-            assertTrue(file.isFile());String text=Files.readString(file.toPath());
+            assertTrue(file.isFile());String text=TestIo.text(file.toPath());
             assertFalse("Connected physical network supplies bootstrap DNS",text.isEmpty());
             assertFalse(text.contains("https://"));
             for(String server:text.trim().split("\\s+"))assertTrue(server.endsWith(":53"));

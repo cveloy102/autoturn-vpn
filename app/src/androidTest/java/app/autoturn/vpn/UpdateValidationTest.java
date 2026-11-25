@@ -11,7 +11,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class UpdateValidationTest extends InstrumentationTestCase {
-    private static final String HASH = "a".repeat(64);
+    private static final String HASH = TestIo.repeat('a', 64);
     private static final String URL = "https://github.com/cveloy102/autoturn-vpn/releases/download/v1.0.6/AutoTurn-1.0.6.apk";
     private JSONObject release() throws Exception {
         return new JSONObject().put("tag_name", "v1.0.6").put("draft", false).put("prerelease", false)
@@ -85,7 +85,7 @@ public final class UpdateValidationTest extends InstrumentationTestCase {
         assertNull(UpdateRelease.metadataUrl(legacy));
     }
     public void testNotesAreBounded() throws Exception {
-        assertEquals(12000, UpdateRelease.parse(release().put("body", "x".repeat(13000)), metadata()).notes.length());
+        assertEquals(12000, UpdateRelease.parse(release().put("body", TestIo.repeat('x', 13000)), metadata()).notes.length());
     }
     private UpdateRelease apkMetadata(File apk, long code, String version) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");

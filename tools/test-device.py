@@ -19,8 +19,6 @@ RUNNER = PACKAGE + ".instrumentation/android.test.InstrumentationTestRunner"
 SOURCES = ROOT / "app/src/androidTest/java/app/autoturn/vpn"
 SPECIAL = {
     "ProtectedModeDeviceTest#testSavedWifiNetworkTransitions": "requires two named, reachable, saved Wi-Fi networks",
-    "PublicationUpdateTest#testInstalled150IsCurrent": "only applicable when 1.5.0 is the latest public release",
-    "PublicationUpdateTest#testPublished150DownloadAndSignature": "requires a pre-1.5.0 installation and the 1.5.0 public release",
 }
 
 

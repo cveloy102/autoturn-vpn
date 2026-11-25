@@ -14,7 +14,7 @@ abstract class RoutingProbeTestCase extends InstrumentationTestCase {
     final String shell(String command) throws Exception {
         ParcelFileDescriptor fd = getInstrumentation().getUiAutomation().executeShellCommand(command);
         try (InputStream in = new ParcelFileDescriptor.AutoCloseInputStream(fd)) {
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            return new String(TestIo.bytes(in), StandardCharsets.UTF_8);
         }
     }
 }

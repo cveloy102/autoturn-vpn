@@ -78,7 +78,7 @@ public final class UpdateMigrationTest extends InstrumentationTestCase {
                     .put(new JSONObject().put("name","update.json").put("browser_download_url","https://github.com/cveloy102/autoturn-vpn/releases/download/v1.7.0/update.json"))
                     .put(new JSONObject().put("name","AutoTurn-1.7.0.apk").put("size",new File(target.getApplicationInfo().sourceDir).length())
                     .put("browser_download_url","https://github.com/cveloy102/autoturn-vpn/releases/download/v1.7.0/AutoTurn-1.7.0.apk")));
-            JSONObject metadata=new JSONObject().put("versionCode",31).put("versionName","1.7.0").put("apkName","AutoTurn-1.7.0.apk").put("sha256","a".repeat(64));
+            JSONObject metadata=new JSONObject().put("versionCode",31).put("versionName","1.7.0").put("apkName","AutoTurn-1.7.0.apk").put("sha256",TestIo.repeat('a', 64));
             Class<?> updater=legacy.loadClass("app.autoturn.vpn.UpdateRelease");Method parse=updater.getDeclaredMethod("parse",JSONObject.class,JSONObject.class);parse.setAccessible(true);
             Object accepted=parse.invoke(null,release,metadata);assertEquals(31L,((Number)get(accepted,"code")).longValue());
             android.os.Bundle out=new android.os.Bundle();out.putString("stream","PASS published 1.5.0 encrypted settings -> 1.7.0; profiles/order/modes/app lists preserved; legacy updater accepts 1.7.0\n");

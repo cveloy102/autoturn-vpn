@@ -71,7 +71,7 @@ public final class CompactProfilesUiTest extends InstrumentationTestCase {
     @Override protected void setUp() throws Exception {
         super.setUp();context=getInstrumentation().getTargetContext();
         try(android.os.ParcelFileDescriptor fd=getInstrumentation().getUiAutomation().executeShellCommand("input keyevent 224")) {
-            try(java.io.InputStream in=new android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)){in.readAllBytes();}
+            try(java.io.InputStream in=new android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)){TestIo.bytes(in);}
         }
         original=Files.readAllBytes(new File(context.getFilesDir(),"settings.enc").toPath());baseline=new SecureStore(context);
         notesVersion=context.getSharedPreferences("release_notes",Context.MODE_PRIVATE).getInt("shown_version",0);

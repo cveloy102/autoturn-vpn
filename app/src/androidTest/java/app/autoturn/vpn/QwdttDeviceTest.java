@@ -16,7 +16,7 @@ public final class QwdttDeviceTest extends RoutingProbeTestCase {
 
     private Profile testProfile() throws Exception {
         File input = new File(context.getFilesDir(), "qwdtt-test-input.txt");
-        if (input.isFile()) return ProfileImporter.parse("qWDTT", Files.readString(input.toPath()).trim());
+        if (input.isFile()) return ProfileImporter.parse("qWDTT", TestIo.text(input.toPath()).trim());
         for (Profile saved : new SecureStore(context).profiles) {
             if (saved.enabled && Profile.QWDTT.equals(saved.type)) return ProfileImporter.parse("qWDTT", saved.config);
         }
