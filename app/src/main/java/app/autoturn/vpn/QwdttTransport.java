@@ -27,7 +27,7 @@ final class QwdttTransport implements AutoCloseable {
     private BootstrapNetworkDns bootstrapDns;
     private volatile boolean ready, closed, vpnActive, outputEnded;
     private final String session = UUID.randomUUID().toString();
-    private static final int CAPTCHA_NOTIFICATION = 103;
+    static final int CAPTCHA_NOTIFICATION = 103;
 
     QwdttTransport(Context context, String attemptId) { this.context = context; this.attemptId = attemptId; }
 

@@ -197,18 +197,21 @@ final class LiveIsland {
         return !shownKey.isEmpty() && (shownExpires == 0 || android.os.SystemClock.elapsedRealtime() < shownExpires);
     }
 
-    void show(Content content) {
-        if (!enabled) return;
+    /** @return true when this call posted the content (it was not already on screen). */
+    boolean show(Content content) {
+        if (!enabled) return false;
         String key = content.key();
-        if (key.equals(shownKey) && (!content.kind.confirmation() || showing())) return;
+        if (key.equals(shownKey) && (!content.kind.confirmation() || showing())) return false;
         try {
             ensureChannel(context);
             manager().notify(ID, build(content));
             shownKey = key;
             shownKind = content.kind;
             shownExpires = content.timeoutMs > 0 ? android.os.SystemClock.elapsedRealtime() + content.timeoutMs : 0;
+            return true;
         } catch (RuntimeException ignored) {
             // A notification is never worth breaking the connection logic.
+            return false;
         }
     }
 

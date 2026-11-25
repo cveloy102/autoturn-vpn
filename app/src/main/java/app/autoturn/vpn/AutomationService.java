@@ -264,10 +264,8 @@ public final class AutomationService extends Service {
             store = new SecureStore(this);
             lastStore = store;
             island.setEnabled(store.liveIsland);
-            boolean observedDeadline = !SecureStore.MANUAL_AUTO.equals(lastManualMode) &&
-                    lastManualUntil > 0 && now >= lastManualUntil;
-            boolean autoReturned = SecureStore.MANUAL_AUTO.equals(store.manualMode) &&
-                    (expired || expiredByAlarm || observedDeadline);
+            boolean autoReturned = autoReturned(lastManualMode, lastManualUntil, store.manualMode,
+                    expired || expiredByAlarm, now);
             lastManualMode = store.manualMode;
             lastManualUntil = store.manualUntil;
             boolean wasRunning = !runningId.isEmpty();
@@ -563,7 +561,10 @@ public final class AutomationService extends Service {
             final boolean confirmation = consecutiveTrafficFailures > 0;
             if (qwdtt && QwdttState.pending(this, runningId)) {
                 StatusStore.set(this, StatusStore.CONNECTING, "qWDTT · требуется капча VK — откройте AutoTurn");
-                island.show(LiveIsland.Content.captcha());
+                // When the island really shows the captcha, the transport's own prompt would be a duplicate.
+                if (island.show(LiveIsland.Content.captcha()) &&
+                        LiveIsland.availability(this) == LiveIsland.Availability.READY)
+                    getSystemService(NotificationManager.class).cancel(QwdttTransport.CAPTCHA_NOTIFICATION);
                 scheduleHealth(2000);
                 return;
             }
@@ -698,6 +699,18 @@ public final class AutomationService extends Service {
         StatusStore.set(this, StatusStore.CONNECTING, detail);
         updateNotification();
         applyDecision();
+    }
+
+    /**
+     * True when this decision is the manual mode's timer running out (not the user choosing Auto):
+     * the store or the alarm just expired it, or the previous decision saw a deadline that has passed.
+     */
+    static boolean autoReturned(String lastManualMode, long lastManualUntil, String manualMode,
+                                boolean expiredNow, long now) {
+        if (!SecureStore.MANUAL_AUTO.equals(manualMode)) return false;
+        boolean observedDeadline = !SecureStore.MANUAL_AUTO.equals(lastManualMode) &&
+                lastManualUntil > 0 && now >= lastManualUntil;
+        return expiredNow || observedDeadline;
     }
 
     /** Worker thread. Shows which profile of the queue is being tried, with failed ones in red. */
