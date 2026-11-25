@@ -156,6 +156,9 @@ public final class UpdateUiTest extends InstrumentationTestCase {
     }
     public void testResumeChecksAgainAfterOneHour() throws Exception {
         launch(); waitCheck();
+        java.util.ArrayList<View> labels = new java.util.ArrayList<>();
+        activity.getWindow().getDecorView().findViewsWithText(labels, "не чаще раза в час", View.FIND_VIEWS_WITH_TEXT);
+        assertFalse("Settings explains the automatic check interval", labels.isEmpty());
         long withinHour = System.currentTimeMillis() - 30 * 60_000L;
         prefs.edit().putLong("last_check", withinHour).commit();
         ui(activity::onResume); settle();

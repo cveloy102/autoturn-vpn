@@ -708,7 +708,8 @@ public final class MainActivity extends Activity {
         gap(root, 18);
         root.addView(label("// Обновления", 13, TEXT, false));
         gap(root, 8);
-        root.addView(label("AutoTurn " + BuildConfig.VERSION_NAME + "\nПроверка при открытии — раз в сутки.\nСкачивание из GitHub Releases.", 12, MUTED, false));
+        root.addView(label("AutoTurn " + BuildConfig.VERSION_NAME +
+                "\nПри открытии проверяем обновления не чаще раза в час.\nСкачивание из GitHub Releases.", 12, MUTED, false));
         gap(root, 12);
         root.addView(action("Проверить обновления →", false, v -> updateUi.manualCheck()));
     }

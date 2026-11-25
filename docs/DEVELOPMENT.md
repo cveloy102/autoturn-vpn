@@ -41,7 +41,7 @@ Lint-отчёт создаётся в `app/build/reports/lint-results-debug.html
 .\gradlew.bat :app:connectedDebugAndroidTest "-Pandroid.testInstrumentationRunnerArguments.class=app.autoturn.vpn.ModelValidationTest,app.autoturn.vpn.TileToggleTest"
 ```
 
-GitHub Actions собирает debug, staging и инструментальные тесты, запускает модульные тесты и lint. На эмуляторах API 31 и 36 проверяются совместная установка APK, модель приложения, DNS, плитка и уведомления острова. Для полного прогона на телефоне с рабочими профилями используйте [инструкцию по проверке](TESTING.md).
+GitHub Actions собирает debug, staging и инструментальные тесты, запускает модульные тесты, lint и проверки правил защиты, TCP/UDP и цепочки Xray–qWDTT. На эмуляторах API 31 и 36 проверяются совместная установка APK, модель приложения, DNS, плитка и уведомления острова. Для полного прогона на телефоне с рабочими профилями используйте [инструкцию по проверке](TESTING.md).
 
 ## Структура Android-клиента
 
