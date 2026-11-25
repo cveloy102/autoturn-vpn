@@ -9,7 +9,7 @@ android {
         minSdk 31
         targetSdk 36
         versionCode 36
-        versionName '2.1.0-rc1'
+        versionName '2.1.0'
         testApplicationId 'app.autoturn.vpn.instrumentation'
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
