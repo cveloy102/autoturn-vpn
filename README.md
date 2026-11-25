@@ -1,34 +1,22 @@
-<div align="center">
+# AutoTurn VPN для Android
 
-# AUTOTURN_
+<a name="autoturn_"></a>
 
-### Дома — напрямую. Вне дома — VPN.
+AutoTurn включает ваш VPN, когда вы уходите из дома, и отключает его при возвращении на домашний Wi-Fi. Нужны **Android 12 или новее** и свой профиль VPN.
 
-Android-приложение, которое само включает VPN, когда вы уходите из дома,
-и выключает его, когда возвращаетесь на домашний Wi-Fi.
+**[Скачать для Android (APK)](https://github.com/cveloy102/autoturn-vpn/releases/download/v2.1.0/AutoTurn-2.1.0.apk)** · [Инструкция](docs/usage.md) · [Страница приложения](https://cveloy102.github.io/autoturn-vpn/)
 
-[![Android](https://img.shields.io/badge/Android-12%2B-222222?logo=android&logoColor=white)](docs/usage.md#установка)
-[![Release](https://img.shields.io/github/v/release/cveloy102/autoturn-vpn?color=f43d38&label=release)](https://github.com/cveloy102/autoturn-vpn/releases/latest)
+## Как начать
 
-**[Скачать APK](https://github.com/cveloy102/autoturn-vpn/releases/latest)** · **[Сайт](https://cveloy102.github.io/autoturn-vpn/)** · **[Инструкция](docs/usage.md)** · **[Что нового](CHANGELOG.md)** · **[Сообщить об ошибке](https://github.com/cveloy102/autoturn-vpn/issues/new/choose)**
+1. Установите APK. В **«Профилях»** добавьте файл конфигурации или вставьте ссылку подключения.
+2. Подключитесь к домашнему Wi-Fi. В **«Настройках»** нажмите **«+ Добавить текущую сеть»**, разрешите определение местоположения «Всегда» для распознавания сети.
+3. Выберите **«Авто»** и подтвердите системный запрос VPN. Переключитесь на мобильный интернет и проверьте статус на главном экране. При возвращении домой VPN должен отключиться.
 
-<table><tr>
-<td align="center"><img src="docs/images/home-online.png" width="240" alt="AutoTurn 2.0: главный экран, VPN на связи"><br>Подключение</td>
-<td align="center"><img src="docs/images/profiles.png" width="240" alt="AutoTurn 2.0: основной профиль и резервы"><br>Профили</td>
-<td align="center"><img src="docs/images/settings.png" width="240" alt="AutoTurn 2.0: настройки, тема и домашние сети"><br>Настройки</td>
-</tr></table>
+<img src="docs/images/home-online.png" width="300" alt="Главный экран AutoTurn со статусом подключения к VPN">
 
-*AutoTurn 2.0. Профили и имя сети на скриншотах демонстрационные.*
+*Так выглядит активное подключение. Имя сети и профиль на снимке демонстрационные.*
 
-</div>
-
-## Что нового в 2.1
-
-Статусы в острове HyperOS и OxygenOS: какой профиль подключается, капча, пауза перед повтором и короткие «На связи», «Вы дома», «VPN выключен». Опция в настройках, по умолчанию выключена. В шторке теперь одна карточка AutoTurn с режимом и кнопками. [Подробнее о 2.1](docs/RELEASE-2.1.0.md)
-
-## Что нового в 2.0
-
-Новый дизайн с крупным статусом и живым индикатором связи, надёжнее контроль соединения, перенос всех профилей одним файлом, ссылка не остаётся в буфере обмена. Нужен Android 12 или новее. [Подробнее о 2.0](docs/RELEASE-2.0.0.md)
+**Если не получилось** — [проверьте разрешения и распознавание Wi-Fi](docs/usage.md#faq) или [сообщите об ошибке](https://github.com/cveloy102/autoturn-vpn/issues/new/choose). Приложение проверено на POCO F7 с Android 16 и HyperOS.
 
 ## Что умеет
 
@@ -43,16 +31,15 @@ Android-приложение, которое само включает VPN, ко
 
 Тёмная, светлая и системная темы.
 
-## Как начать
+## Что нового в 2.1
 
-1. [Скачайте APK](https://github.com/cveloy102/autoturn-vpn/releases/latest) из раздела **Assets** и установите.
-2. В **Профилях** добавьте файл конфигурации или вставьте ссылку подключения.
-3. Подключитесь к домашнему Wi-Fi и в **Настройках** нажмите **«+ Добавить текущую сеть»**.
-4. Выберите режим **«Авто»**, разрешите местоположение **«Всегда»** (Android так даёт узнать имя Wi-Fi) и подтвердите запрос VPN.
+Статусы в острове HyperOS и OxygenOS: какой профиль подключается, капча, пауза перед повтором и короткие «На связи», «Вы дома», «VPN выключен». Опция в настройках, по умолчанию выключена. В шторке теперь одна карточка AutoTurn с режимом и кнопками. [Подробнее о 2.1](docs/RELEASE-2.1.0.md)
 
-Нужен свой VPN-сервер или выданный вам профиль: сервер и подписка в приложение не входят. Проверено на POCO F7 с Android 16 / HyperOS.
+## Что нового в 2.0
 
-[Пошаговая инструкция со скриншотами →](docs/usage.md)
+Новый дизайн с крупным статусом и живым индикатором связи, надёжнее контроль соединения, перенос всех профилей одним файлом, ссылка не остаётся в буфере обмена. Нужен Android 12 или новее. [Подробнее о 2.0](docs/RELEASE-2.0.0.md)
+
+[Все версии](https://github.com/cveloy102/autoturn-vpn/releases) · [История изменений](CHANGELOG.md) · [Экран профилей](docs/images/profiles.png) · [Экран настроек](docs/images/settings.png)
 
 ## Помощь
 
@@ -62,4 +49,4 @@ Android держит только одно VPN-подключение однов
 
 Для разработчиков: [сборка и выпуск](docs/DEVELOPMENT.md) · [участие в проекте](CONTRIBUTING.md) · [безопасность](SECURITY.md) · [сторонние компоненты](docs/THIRD_PARTY.md).
 
-[AutoTurn для macOS](https://github.com/cveloy102/autoturn-macos)
+[AutoTurn для macOS](https://github.com/cveloy102/autoturn-macos) · [Каталог приложений](https://cveloy102.github.io/#autoturn)
