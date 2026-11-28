@@ -52,6 +52,13 @@ public final class AutomationService extends Service {
     private volatile String ssid = "";
     // The Wi-Fi network the current SSID was read from; another network's loss must not clear it.
     private volatile Network ssidNetwork;
+    // The non-VPN network Android sends traffic through (the system default); null until known.
+    // The home SSID counts as home only while this is that Wi-Fi (see HomeNetwork).
+    private ConnectivityManager.NetworkCallback trafficCallback;
+    private volatile Network trafficNetwork;
+    // Elapsed realtime when traffic last went past the Wi-Fi; recovered home Wi-Fi settles from here.
+    private volatile long lastBypassedAt;
+    private HomeNetwork.State lastHomeState;
     private String runningId = "";
     private String runningType = "";
     private String runningPolicy = "";
@@ -158,6 +165,25 @@ public final class AutomationService extends Service {
             }
         };
         connectivity.registerNetworkCallback(request, callback);
+        // "Best matching" a plain internet request (NOT_VPN by default) is the network Android routes
+        // through. When home Wi-Fi loses internet, this moves to mobile data while the SSID stays.
+        trafficCallback = new ConnectivityManager.NetworkCallback() {
+            @Override public void onAvailable(Network network) {
+                Network previous = trafficNetwork;
+                if (previous != null && !previous.equals(network) && !previous.equals(ssidNetwork))
+                    lastBypassedAt = SystemClock.elapsedRealtime();
+                trafficNetwork = network;
+                Log.i(TAG, "Traffic network: " + describe(network));
+                schedule(500);
+            }
+            @Override public void onLost(Network network) {
+                if (network.equals(trafficNetwork)) trafficNetwork = null;
+                Log.i(TAG, "Traffic network lost: " + describe(network));
+                schedule(500);
+            }
+        };
+        connectivity.registerBestMatchingNetworkCallback(new NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build(), trafficCallback, handler);
         vpnCallback = new ConnectivityManager.NetworkCallback() {
             @Override public void onAvailable(Network network) {
                 enqueue(() -> {
@@ -217,6 +243,7 @@ public final class AutomationService extends Service {
         handler.removeCallbacks(healthTick);
         handler.removeCallbacks(cardCheck);
         if (callback != null) connectivity.unregisterNetworkCallback(callback);
+        if (trafficCallback != null) connectivity.unregisterNetworkCallback(trafficCallback);
         if (vpnCallback != null) connectivity.unregisterNetworkCallback(vpnCallback);
         worker.execute(() -> {
             islandFailed.clear();
@@ -317,7 +344,8 @@ public final class AutomationService extends Service {
                 clearIsland();
                 return;
             }
-            boolean atHome = store.isHomeSsid(ssid);
+            HomeNetwork.State home = homeState(store);
+            boolean atHome = HomeNetwork.atHome(home);
             boolean shouldRun = SecureStore.MANUAL_ON.equals(store.manualMode) || !atHome;
             if (!shouldRun) {
                 stopCurrent();
@@ -370,6 +398,8 @@ public final class AutomationService extends Service {
             StatusStore.set(this, StatusStore.CONNECTING,
                     SecureStore.MANUAL_ON.equals(store.manualMode) ? "Включаем VPN вручную" :
                     atHome ? "Включаем вручную для домашней сети" :
+                            home == HomeNetwork.State.BYPASSED || home == HomeNetwork.State.SETTLING ?
+                                    "Интернет идёт мимо домашнего Wi-Fi · подключаем VPN" :
                             locationHidesHome(store) ? "Геолокация выключена · дом не определить, подключаем VPN" :
                             ssid.isEmpty() && !hasPhysicalWifi() ? "Мобильная сеть · подключаем VPN" :
                             ssid.isEmpty() ? "Сеть не определена · подключаем VPN" :
@@ -428,6 +458,8 @@ public final class AutomationService extends Service {
             }
             startedAt = SystemClock.elapsedRealtime();
             if (guardEnabled(store)) Log.i(TAG, "Started " + profile.type + "; checking connection");
+            Log.i(TAG, "Start reason: mode=" + store.manualMode + " home=" + home +
+                    " protected=" + store.protectedMode);
             if (guardEnabled(store)) scheduleHealth(1000);
         } catch (Exception e) {
             boolean protect = store != null && needsProtection(store);
@@ -463,7 +495,40 @@ public final class AutomationService extends Service {
     }
 
     private boolean needsProtection(SecureStore store) {
-        return ProtectionRules.needsBarrier(store.protectedMode, store.manualMode, store.isHomeSsid(ssid));
+        return ProtectionRules.needsBarrier(store.protectedMode, store.manualMode, atHome(store));
+    }
+
+    // For the log only: which network this is (no names or addresses).
+    private String describe(Network network) {
+        try {
+            NetworkCapabilities caps = connectivity.getNetworkCapabilities(network);
+            if (caps == null) return network + " gone";
+            String kind = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ? "wifi" :
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ? "mobile" : "other";
+            return network + " " + kind + (network.equals(ssidNetwork) ? " (ssid)" : "") +
+                    (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ? " validated" : " not-validated");
+        } catch (RuntimeException e) { return network + " ?"; }
+    }
+
+    private boolean atHome(SecureStore store) {
+        return HomeNetwork.atHome(homeState(store));
+    }
+
+    // Worker thread. Home = home SSID and that Wi-Fi really carries the traffic (see HomeNetwork).
+    private HomeNetwork.State homeState(SecureStore store) {
+        Network traffic = trafficNetwork;
+        boolean carries = traffic == null || traffic.equals(ssidNetwork);
+        long now = SystemClock.elapsedRealtime();
+        HomeNetwork.State state = HomeNetwork.state(store.isHomeSsid(ssid), carries, now, lastBypassedAt);
+        if (state == HomeNetwork.State.BYPASSED) lastBypassedAt = now;
+        else if (state == HomeNetwork.State.SETTLING)
+            schedule(HomeNetwork.settleRemaining(now, lastBypassedAt) + 200);
+        if (state != lastHomeState) {
+            Log.i(TAG, "Home network state: " + state);
+            lastHomeState = state;
+            HomeNetwork.setBypassed(this, state == HomeNetwork.State.BYPASSED || state == HomeNetwork.State.SETTLING);
+        }
+        return state;
     }
 
     private void holdProtection(String detail) {
@@ -526,12 +591,12 @@ public final class AutomationService extends Service {
 
     private boolean wantsVpn(SecureStore store) {
         if (store.protectedMode) return ProtectionRules.shouldConnect(true, store.manualMode,
-                store.isHomeSsid(ssid), store.firstConnectionProfile() != null);
+                atHome(store), store.firstConnectionProfile() != null);
         if (!store.automation && SecureStore.MANUAL_AUTO.equals(store.manualMode)) return false;
         if (SecureStore.MANUAL_OFF.equals(store.manualMode)) return false;
         if (store.firstConnectionProfile() == null) return false;
         return SecureStore.MANUAL_ON.equals(store.manualMode) ||
-                (!store.homeSsids.isEmpty() && !store.isHomeSsid(ssid));
+                (!store.homeSsids.isEmpty() && !atHome(store));
     }
 
     private void checkHealth() {

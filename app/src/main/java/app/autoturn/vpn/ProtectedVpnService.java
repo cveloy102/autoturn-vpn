@@ -90,8 +90,15 @@ public final class ProtectedVpnService extends VpnService {
     }
 
     private boolean barrierWanted(SecureStore store) {
-        return ProtectionRules.needsBarrier(store.protectedMode, store.manualMode,
-                store.isHomeSsid(homeSsid()));
+        return ProtectionRules.needsBarrier(store.protectedMode, store.manualMode, atHome(store));
+    }
+
+    // Home = home SSID whose Wi-Fi really carries the traffic; otherwise traffic leaks past it.
+    private boolean atHome(SecureStore store) {
+        if (!store.isHomeSsid(homeSsid()) || HomeNetwork.bypassed(this)) return false;
+        try {
+            return HomeNetwork.wifiCarriesTraffic(getSystemService(android.net.ConnectivityManager.class));
+        } catch (RuntimeException e) { return false; } // Unknown home status must fail closed.
     }
 
     private String homeSsid() {
@@ -116,7 +123,7 @@ public final class ProtectedVpnService extends VpnService {
         if (owner != this || command != generation) return false;
         SecureStore store = new SecureStore(this);
         return ProtectionRules.shouldConnect(store.protectedMode, store.manualMode,
-                store.isHomeSsid(homeSsid()), store.activeProfile() != null && store.activeProfile().enabled)
+                atHome(store), store.activeProfile() != null && store.activeProfile().enabled)
                 && id != null && id.equals(store.activeId);
     }
 
